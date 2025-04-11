@@ -1,0 +1,35 @@
+@startuml TabibMeet Deployment Diagram
+
+node "Client Device" {
+  [Web Browser]
+  [Mobile App]
+}
+
+cloud "Cloud Provider" {
+  node "Application Server" {
+    [FastAPI Backend]
+  }
+  
+  node "WebSocket Server" {
+    [WebSocket Service]
+  }
+  
+  node "Database Server" {
+    [PostgreSQL Database]
+  }
+  
+  node "Background Services" {
+    [Appointment Updater]
+  }
+}
+
+[Web Browser] ..> [FastAPI Backend] : HTTPS
+[Web Browser] ..> [WebSocket Service] : WSS
+[Mobile App] ..> [FastAPI Backend] : HTTPS
+[Mobile App] ..> [WebSocket Service] : WSS
+
+[FastAPI Backend] --> [PostgreSQL Database] : TCP/IP
+[WebSocket Service] --> [PostgreSQL Database] : TCP/IP
+[Appointment Updater] --> [PostgreSQL Database] : TCP/IP
+
+@enduml

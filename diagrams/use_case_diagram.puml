@@ -1,0 +1,59 @@
+@startuml TabibMeet Use Case Diagram
+
+left to right direction
+skinparam actorStyle awesome
+
+actor "Patient" as patient
+actor "Doctor" as doctor
+actor "Admin" as admin
+actor "System" as system
+
+rectangle "TabibMeet Platform" {
+  usecase "Register Account" as UC1
+  usecase "Login" as UC2
+  usecase "Update Profile" as UC3
+  usecase "View Doctors" as UC4
+  usecase "Book Appointment" as UC5
+  usecase "Manage Appointments" as UC6
+  usecase "Set Availability" as UC7
+  usecase "Join Video Consultation" as UC8
+  usecase "Receive Notifications" as UC9
+  usecase "Health Check System" as UC10
+  usecase "Update Past Appointments" as UC11
+  
+  ' New admin use cases
+  usecase "Manage Admin Users" as UC12
+  usecase "Manage Patient Users" as UC13
+  usecase "Manage Doctor Users" as UC14
+  usecase "Manage All Appointments" as UC15
+  usecase "Manage Sponsored Doctors" as UC16
+}
+
+patient --> UC1
+patient --> UC2
+patient --> UC3
+patient --> UC4
+patient --> UC5
+patient --> UC6
+patient --> UC8
+patient --> UC9
+
+doctor --> UC1
+doctor --> UC2
+doctor --> UC3
+doctor --> UC6
+doctor --> UC7
+doctor --> UC8
+doctor --> UC9
+
+admin --> UC2
+admin --> UC10
+admin --> UC12
+admin --> UC13
+admin --> UC14
+admin --> UC15
+admin --> UC16
+
+system --> UC11
+
+@enduml

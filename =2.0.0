@@ -1,0 +1,7 @@
+Requirement already satisfied: pydantic in /home/yacine/Downloads/development/lib/python3.10/site-packages (2.11.2)
+Requirement already satisfied: pydantic-settings in /home/yacine/Downloads/development/lib/python3.10/site-packages (2.8.1)
+Requirement already satisfied: pydantic-core==2.33.1 in /home/yacine/Downloads/development/lib/python3.10/site-packages (from pydantic) (2.33.1)
+Requirement already satisfied: annotated-types>=0.6.0 in /home/yacine/Downloads/development/lib/python3.10/site-packages (from pydantic) (0.7.0)
+Requirement already satisfied: typing-inspection>=0.4.0 in /home/yacine/Downloads/development/lib/python3.10/site-packages (from pydantic) (0.4.0)
+Requirement already satisfied: typing-extensions>=4.12.2 in /home/yacine/Downloads/development/lib/python3.10/site-packages (from pydantic) (4.13.1)
+Requirement already satisfied: python-dotenv>=0.21.0 in /home/yacine/Downloads/development/lib/python3.10/site-packages (from pydantic-settings) (1.0.1)

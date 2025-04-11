@@ -1,0 +1,196 @@
+@startuml TabibMeet Class Diagram
+
+enum UserRole {
+  ADMIN
+  DOCTOR
+  PATIENT
+}
+
+package "User Management" {
+  class User {
+    + id: Integer
+    + email: String
+    + phone: String
+    + password: String
+    + salt: String
+    + first_name: String
+    + last_name: String
+    + role: UserRole
+    + is_active: Boolean
+    + created_at: DateTime
+    + updated_at: DateTime
+    + two_factor_enabled: Boolean
+    + two_factor_secret: String
+    + pending_email: String
+    + email_verification_code: String
+    + pending_phone: String
+    + phone_verification_code: String
+    + login_attempts: Integer
+    + last_login_attempt: DateTime
+    + locked_until: DateTime
+    + refresh_token: String
+    + last_login: DateTime
+    + last_ip: String
+    + reset_token: String
+    + reset_token_expires: DateTime
+  }
+  
+  class AdminProfile {
+    + id: Integer
+    + user_id: Integer
+    + department: String
+    + permissions: String
+  }
+  
+  class DoctorProfile {
+    + id: Integer
+    + user_id: Integer
+    + specialty: String
+    + license_number: String
+    + bio: String
+    + education: String
+    + years_experience: Integer
+    + is_verified: Boolean
+    + verification_notes: String
+    + address: String
+    + city: String
+    + state: String
+    + postal_code: String
+    + country: String
+  }
+  
+  class PatientProfile {
+    + id: Integer
+    + user_id: Integer
+    + date_of_birth: DateTime
+    + gender: String
+    + address: String
+    + medical_history: String
+    + insurance_info: String
+    + emergency_contact_name: String
+    + emergency_contact_phone: String
+  }
+  
+  class FeaturedDoctor {
+    + id: Integer
+    + doctor_id: Integer
+    + start_date: DateTime
+    + end_date: DateTime
+    + feature_enabled: Boolean
+  }
+  
+  class HomeDisplaySettings {
+    + id: Integer
+    + show_verified_doctors: Boolean
+    + max_doctors: Integer
+    + updated_at: DateTime
+  }
+}
+
+package "Scheduling" {
+  class DoctorAvailability {
+    + id: Integer
+    + doctor_id: Integer
+    + availability_date: Date
+    + start_time: Time
+    + end_time: Time
+    + is_available: Boolean
+    + start_time2: Time
+    + end_time2: Time
+    + start_time3: Time
+    + end_time3: Time
+  }
+  
+  class Appointment {
+    + id: Integer
+    + doctor_id: Integer
+    + patient_id: Integer
+    + start_time: Time
+    + end_time: Time
+    + appointment_date: Date
+    + status: String
+    + reason: String
+    + notes: String
+    + created_at: DateTime
+    + is_updated: Boolean
+    + update_date: DateTime
+  }
+}
+
+package "Services" {
+  class AuthService {
+    + register_user()
+    + login_user()
+    + verify_token()
+    + refresh_token()
+    + reset_password()
+    + verify_email()
+    + verify_phone()
+    + enable_two_factor()
+  }
+  
+  class UserService {
+    + create_user()
+    + get_user()
+    + update_user()
+    + deactivate_user()
+    + manage_admin()
+    + manage_doctor()
+    + manage_patient()
+    + verify_doctor()
+  }
+  
+  class AppointmentService {
+    + create_appointment()
+    + get_appointment()
+    + update_appointment()
+    + cancel_appointment()
+    + update_past_appointments()
+  }
+  
+  class AvailabilityService {
+    + set_availability()
+    + get_doctor_availability()
+    + check_slot_available()
+  }
+  
+  class FeaturedDoctorService {
+    + add_featured_doctor()
+    + remove_featured_doctor()
+    + get_featured_doctors()
+    + update_featured_status()
+  }
+  
+  class WebSocketService {
+    + connect()
+    + disconnect()
+    + send_notification()
+  }
+}
+
+' User relationships
+User "1" -- "0..1" AdminProfile
+User "1" -- "0..1" DoctorProfile
+User "1" -- "0..1" PatientProfile
+User -- UserRole
+
+' Doctor relationships
+DoctorProfile "1" -- "0..*" DoctorAvailability
+DoctorProfile "1" -- "0..*" Appointment : doctor
+DoctorProfile "1" -- "0..1" FeaturedDoctor
+
+' Patient relationships
+PatientProfile "1" -- "0..*" Appointment : patient
+
+' Service relationships
+AuthService -- User : authenticates >
+UserService -- User : manages >
+UserService -- AdminProfile : manages >
+UserService -- DoctorProfile : manages >
+UserService -- PatientProfile : manages >
+AppointmentService -- Appointment : manages >
+AvailabilityService -- DoctorAvailability : manages >
+FeaturedDoctorService -- FeaturedDoctor : manages >
+WebSocketService -- User : notifies >
+
+@enduml

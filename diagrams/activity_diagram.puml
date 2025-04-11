@@ -1,0 +1,123 @@
+@startuml TabibMeet Activity Diagram
+
+|Patient|
+start
+:Register/Login;
+:Browse Doctors;
+
+|Patient|
+if (Account Verified?) then (yes)
+  :View Doctor Profiles;
+  :Check Doctor Availability;
+  
+  if (Slots Available?) then (yes)
+    :Select Appointment Time;
+    :Confirm Appointment;
+    
+    |System|
+    :Create Appointment Record;
+    :Send Notifications;
+    
+    |Doctor|
+    :Receive Appointment Notification;
+    if (Accept Appointment?) then (yes)
+      :Appointment Confirmed;
+      
+      |System|
+      :Update Appointment Status;
+      :Notify Patient of Confirmation;
+      
+      |Patient|
+      :Receive Confirmation;
+      :Wait for Appointment Date;
+      
+      |Patient|
+      :Join Video Consultation;
+      
+      |Doctor|
+      :Join Video Consultation;
+      :Conduct Appointment;
+      :End Consultation;
+      
+      |System|
+      :Mark Appointment as Complete;
+      
+    else (no)
+      |Doctor|
+      :Provide Reason for Rejection;
+      
+      |System|
+      :Update Appointment Status;
+      :Notify Patient of Rejection;
+      
+      |Patient|
+      :Receive Rejection;
+      :Choose Different Time Slot;
+    endif
+    
+  else (no)
+    |Patient|
+    :Choose Different Doctor/Date;
+  endif
+  
+else (no)
+  |Patient|
+  :Complete Verification;
+  
+  |System|
+  :Process Verification;
+endif
+
+|Doctor|
+:Login to System;
+:View Appointments;
+:Manage Availability;
+
+|Doctor|
+partition "Availability Management" {
+  :View Calendar;
+  :Set Available Time Slots;
+  :Save Availability;
+  
+  |System|
+  :Update Availability Records;
+}
+
+|Admin|
+:Login to Admin Panel;
+
+|Admin|
+partition "Admin Management" {
+  if (Manage Users?) then (yes)
+    :View User List;
+    if (User Type?) then (Doctor)
+      :Verify Doctor Credentials;
+      :Approve/Reject Doctor;
+    else (Patient)
+      :View Patient Details;
+      :Manage Patient Account;
+    endif
+  else if (Manage Appointments?) then (yes)
+    :View All Appointments;
+    :Modify Appointment Status;
+  else if (Manage Sponsored Doctors?) then (yes)
+    :Select Doctors for Promotion;
+    :Set Sponsorship Period;
+    :Update Featured Status;
+  else (System Maintenance)
+    :Monitor System Health;
+    :Review System Logs;
+  endif
+}
+
+|System|
+partition "Background Tasks" {
+  :Run Scheduled Jobs;
+  :Update Past Appointments;
+  :Clean Expired Sessions;
+  :Send Reminder Notifications;
+}
+
+stop
+
+@enduml

@@ -1,0 +1,112 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.vs/
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite3
+*.sqlite
+
+# Compiled files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Local configuration
+instance/
+
+# Cache directories
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Package build files
+*.egg-info/
+dist/
+build/
+
+# Local development
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~.nib
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Data files
+*.csv
+*.json
+*.yaml
+uploads/
+downloads/
+temp/
+
+# Credentials
+*.pem
+*.key
+*.cert
+*.p12

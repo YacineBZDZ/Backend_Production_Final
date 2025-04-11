@@ -1,0 +1,39 @@
+@startuml TabibMeet Component Diagram
+
+package "Frontend" {
+  [Web Application]
+  [Mobile Application]
+}
+
+package "Backend" {
+  [Authentication API]
+  [User Management API]
+  [Appointment API]
+  [Availability API]
+  [WebSocket Server]
+  [Background Tasks]
+}
+
+database "Database" {
+  [PostgreSQL]
+}
+
+[Web Application] --> [Authentication API]
+[Web Application] --> [User Management API]
+[Web Application] --> [Appointment API]
+[Web Application] --> [Availability API]
+[Web Application] --> [WebSocket Server]
+
+[Mobile Application] --> [Authentication API]
+[Mobile Application] --> [User Management API]
+[Mobile Application] --> [Appointment API]
+[Mobile Application] --> [Availability API]
+[Mobile Application] --> [WebSocket Server]
+
+[Authentication API] --> [PostgreSQL]
+[User Management API] --> [PostgreSQL]
+[Appointment API] --> [PostgreSQL]
+[Availability API] --> [PostgreSQL]
+[Background Tasks] --> [PostgreSQL]
+
+@enduml

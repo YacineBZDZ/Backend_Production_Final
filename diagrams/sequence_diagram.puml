@@ -1,0 +1,29 @@
+@startuml TabibMeet Appointment Booking Sequence
+
+actor Patient
+participant "Frontend" as FE
+participant "Authentication Service" as AUTH
+participant "Availability Service" as AVAIL
+participant "Appointment Service" as APPT
+participant "WebSocket Service" as WS
+database "Database" as DB
+
+Patient -> FE: Browse available doctors
+FE -> AUTH: Verify user authentication
+AUTH -> FE: Authentication status
+
+Patient -> FE: Check doctor availability
+FE -> AVAIL: Request availability data
+AVAIL -> DB: Query available slots
+DB -> AVAIL: Return available slots
+AVAIL -> FE: Display available time slots
+
+Patient -> FE: Select appointment slot
+FE -> APPT: Create appointment request
+APPT -> DB: Store appointment
+DB -> APPT: Confirm storage
+APPT -> WS: Notify relevant parties
+WS -> Patient: Appointment confirmation
+WS -> Doctor: New appointment notification
+
+@enduml
