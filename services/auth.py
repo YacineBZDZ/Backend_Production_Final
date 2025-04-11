@@ -634,12 +634,108 @@ async def refresh_token(
 # Logout endpoint
 @router.post("/logout")
 async def logout(
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    current_user.refresh_token = None
-    db.commit()
+    """
+    Enhanced logout endpoint that can handle both authenticated requests 
+    and token-based requests
+    """
+    # First try to get the token from the Authorization header
+    auth_header = request.headers.get("Authorization")
+    token = None
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    
+    # If no Authorization header, check for token in request body
+    if not token:
+        try:
+            body = await request.json()
+            token = body.get("token")
+        except:
+            # If request body can't be parsed, proceed without token
+            pass
+    
+    # If we have a token, try to invalidate it
+    if token:
+        try:
+            payload = AuthHandler.decode_token(token)
+            user_id = payload.get("sub")
+            
+            if user_id:
+                user = db.query(User).filter(User.id == user_id).first()
+                if user and user.refresh_token:
+                    user.refresh_token = None
+                    db.commit()
+                    return {"message": "Successfully logged out"}
+        except Exception as e:
+            # If token validation fails, it's already invalid
+            print(f"Error during logout: {str(e)}")
+            pass
+    
+    # Return success even if token wasn't found or was invalid
+    # This prevents user enumeration and is user-friendly
     return {"message": "Successfully logged out"}
+
+# Add a new endpoint to validate tokens
+@router.post("/validate-token")
+async def validate_token(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Validate an access token without requiring full authentication
+    
+    Returns:
+        - 200 OK with user details if token is valid
+        - 401 Unauthorized if token is invalid
+    """
+    try:
+        # Decode the token
+        payload = AuthHandler.decode_token(token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Get the user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is active
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Inactive user account",
+            )
+        
+        # Token is valid, return user details
+        return {
+            "valid": True,
+            "user_id": user.id,
+            "role": user.role.value,
+            "email": user.email
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception:
+        # Any other exception means the token is invalid
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 # Update setup_two_factor to use the new helper function
 @router.post("/2fa/setup")
