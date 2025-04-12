@@ -214,7 +214,7 @@ def get_user_appointments(
         )
 
 @router.post("/appointments", response_model=AppointmentOut)
-def add_appointment(    # changed to synchronous function
+def add_appointment(
     appointment: AppointmentCreate,
     current_user: User = Depends(get_current_active_user)
 ):
@@ -228,11 +228,12 @@ def add_appointment(    # changed to synchronous function
     ad = appointment.appointment_date
     session = SessionLocal()
     try:
-        # Use the patient id from the token instead of the payload's patient_id
-        new_appt = create_appointment(   # removed await
+        # Create the appointment - any WebSocket notification errors are handled internally
+        # and won't affect the success of the appointment creation
+        new_appt = create_appointment(
             session=session,
             doctor_id=appointment.doctor_id,
-            patient_id=current_user.patient_profile.id,  # override with token's patient profile id
+            patient_id=current_user.patient_profile.id,
             start_time=st,
             end_time=et,
             appointment_date=ad,
@@ -242,7 +243,10 @@ def add_appointment(    # changed to synchronous function
         return new_appt
     except Exception as e:
         session.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        # Improve error message with more details
+        error_message = f"Failed to create appointment: {str(e)}"
+        print(error_message)  # Log the detailed error
+        raise HTTPException(status_code=400, detail=error_message)
     finally:
         session.close()
 

@@ -111,17 +111,29 @@ class ConnectionManager:
         - notification_type: Type of notification (new, update, status_change, auto_status_change)
         - affected_user_ids: List of user IDs who should receive this notification
         """
-        notification = {
-            "type": "appointment_notification",
-            "notification_type": notification_type,
-            "appointment": appointment_data
-        }
-        
-        for user_id in affected_user_ids:
-            await self.send_personal_message(notification, user_id)
+        try:
+            notification = {
+                "type": "appointment_notification",
+                "notification_type": notification_type,
+                "appointment": appointment_data
+            }
             
-        # Also send to all admins for monitoring
-        await self.broadcast_to_admins(notification)
+            for user_id in affected_user_ids:
+                try:
+                    if user_id in self.active_connections:
+                        await self.send_personal_message(notification, user_id)
+                except Exception as e:
+                    # Log but continue with other users
+                    logger.error(f"Failed to send notification to user {user_id}: {str(e)}")
+                
+            # Also try to send to admins for monitoring
+            try:
+                await self.broadcast_to_admins(notification)
+            except Exception as e:
+                logger.error(f"Failed to send admin notification: {str(e)}")
+        except Exception as e:
+            # Log the error but don't raise it - this ensures appointment operations complete
+            logger.error(f"Error in send_appointment_notification: {str(e)}")
 
 # Create a singleton instance
 manager = ConnectionManager()

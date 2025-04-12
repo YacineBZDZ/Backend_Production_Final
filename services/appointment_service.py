@@ -92,9 +92,9 @@ def create_appointment(
             "id": new_appointment.id,
             "doctor_id": doctor_id,
             "patient_id": patient_id,
-            "start_time": start_time,
-            "end_time": end_time,
-            "appointment_date": appointment_date,
+            "start_time": start_time.isoformat() if isinstance(start_time, time) else start_time,
+            "end_time": end_time.isoformat() if isinstance(end_time, time) else end_time,
+            "appointment_date": appointment_date.isoformat() if isinstance(appointment_date, date) else appointment_date,
             "status": "pending",
             "reason": reason,
             "notes": notes
@@ -113,13 +113,36 @@ def create_appointment(
             str(patient.user_id)
         ]
         
-        # Run in a separate non-blocking thread
-        asyncio.create_task(manager.send_appointment_notification(
-            notification, 
-            "new",
-            affected_users
-        ))
-        
+        # Handle the WebSocket notification asynchronously but safely
+        try:
+            import asyncio
+            
+            # Check if there's a running event loop we can use
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If there's a running loop, use it to create a task
+                    loop.create_task(manager.send_appointment_notification(
+                        notification, 
+                        "new",
+                        affected_users
+                    ))
+                else:
+                    # If no running loop but one exists, run the coroutine 
+                    # with a short timeout to avoid blocking
+                    asyncio.run_coroutine_threadsafe(
+                        manager.send_appointment_notification(notification, "new", affected_users), 
+                        loop
+                    )
+            except RuntimeError:
+                # If no event loop exists or it can't be accessed, 
+                # log this but don't block the appointment creation
+                print("No running event loop for WebSocket notification. Notification will be skipped.")
+        except Exception as ws_error:
+            # If any WebSocket error occurs, log it but don't fail the appointment
+            print(f"WebSocket notification error: {ws_error}")
+            # The appointment should still be considered successful
+            
     except IntegrityError:
         session.rollback()
         raise Exception("Failed to create appointment due to a database error.")
