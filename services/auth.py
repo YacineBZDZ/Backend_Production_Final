@@ -370,7 +370,7 @@ async def register(
         else:
             # For non-doctor accounts, return the standard response
             if new_user.role == UserRole.PATIENT:
-                token = AuthHandler.encode_token(new_user.id)
+                token = AuthHandler.create_access_token(subject=str(new_user.id))
                 return {"access_token": token, "token_type": "bearer", "user_id": new_user.id}
             return {
                 "message": success_message,
