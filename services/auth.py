@@ -345,8 +345,8 @@ async def register(
         db.commit()
         db.refresh(new_user)
         
-        # For doctor accounts, automatically log in and return tokens
-        if user_data.role == UserRole.DOCTOR:
+        # For doctor or patient accounts, automatically log in and return tokens
+        if user_data.role == UserRole.DOCTOR or user_data.role == UserRole.PATIENT:
             # Create tokens for automatic login
             access_token = AuthHandler.create_access_token({"sub": str(new_user.id), "role": new_user.role.value})
             refresh_token = AuthHandler.create_refresh_token({"sub": str(new_user.id)})
@@ -368,10 +368,7 @@ async def register(
                 "auto_login": True
             }
         else:
-            # For non-doctor accounts, return the standard response
-            if new_user.role == UserRole.PATIENT:
-                token = AuthHandler.create_access_token(subject=str(new_user.id))
-                return {"access_token": token, "token_type": "bearer", "user_id": new_user.id}
+            # For non-doctor/patient accounts (admin), return the standard response
             return {
                 "message": success_message,
                 "user_id": new_user.id,
