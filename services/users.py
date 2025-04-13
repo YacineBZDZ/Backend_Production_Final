@@ -35,12 +35,17 @@ class DoctorProfileResponse(BaseModel):
     education: Optional[str] = None
     years_experience: Optional[int] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    is_verified: Optional[bool] = None
 
     class Config:
         orm_mode = True
 
 class DoctorIdOnlyResponse(BaseModel):
-    phone: Optional[str]
+    phone: Optional[str] = None
     first_name: str
     last_name: str
     specialty: str
@@ -48,7 +53,12 @@ class DoctorIdOnlyResponse(BaseModel):
     bio: Optional[str] = None
     education: Optional[str] = None
     years_experience: Optional[int] = None
-    #address: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    is_verified: Optional[bool] = None
 
     class Config:
         orm_mode = True
@@ -313,7 +323,12 @@ def list_doctors_by_specialty(
             "bio": doc.bio,
             "education": doc.education,
             "years_experience": doc.years_experience,
-            #"address": doc.address,
+            "address": doc.address,
+            "city": doc.city,
+            "state": doc.state,
+            "postal_code": doc.postal_code,
+            "country": doc.country,
+            "is_verified": doc.is_verified,
             "email": user_info.email,
             "phone": user_info.phone,
             "first_name": user_info.first_name,
@@ -339,7 +354,12 @@ async def get_doctor_profile_by_id(
         "bio": doctor_profile.bio,
         "education": doctor_profile.education,
         "years_experience": doctor_profile.years_experience,
-        #"address": doctor_profile.address
+        "address": doctor_profile.address,
+        "city": doctor_profile.city,
+        "state": doctor_profile.state,
+        "postal_code": doctor_profile.postal_code,
+        "country": doctor_profile.country,
+        "is_verified": doctor_profile.is_verified
     }
 
 @router.get("/patients/{patient_id}", response_model=PatientProfileResponse)
@@ -1201,6 +1221,16 @@ def get_featured_doctors(db: Session = Depends(get_db)):
     for fd in featured_doctors:
         # Only include entries with valid doctor and user relationships
         if fd.doctor and fd.doctor.user:
+            doctor = fd.doctor
+            user = doctor.user
+            
+            # Create formatted location
+            formatted_location = None
+            if doctor.city and doctor.state and doctor.country:
+                formatted_location = f"{doctor.city}, {doctor.state}, {doctor.country}"
+            elif doctor.address:
+                formatted_location = doctor.address
+                
             result.append({
                 "id": fd.id,
                 "doctor_id": fd.doctor_id,
@@ -1208,10 +1238,23 @@ def get_featured_doctors(db: Session = Depends(get_db)):
                 "end_date": fd.end_date,
                 "feature_enabled": fd.feature_enabled,
                 "doctor": {
-                    "id": fd.doctor.id,
-                    "first_name": fd.doctor.user.first_name,
-                    "last_name": fd.doctor.user.last_name,
-                    "specialty": fd.doctor.specialty
+                    "id": doctor.id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "specialty": doctor.specialty,
+                    "email": user.email,
+                    "phone": user.phone,
+                    "bio": doctor.bio,
+                    "education": doctor.education,
+                    "years_experience": doctor.years_experience,
+                    "address": doctor.address,
+                    "city": doctor.city,
+                    "state": doctor.state,
+                    "postal_code": doctor.postal_code,
+                    "country": doctor.country,
+                    "is_verified": doctor.is_verified,
+                    "formatted_location": formatted_location,
+                    "full_name": f"{user.first_name} {user.last_name}"
                 }
             })
     
@@ -1219,6 +1262,10 @@ def get_featured_doctors(db: Session = Depends(get_db)):
 
 @router.get("/featured-doctors")
 def get_featured_doctors_protected(db: Session = Depends(get_db)):
+    """
+    Get comprehensive information about all featured doctors for admin view
+    and home screen display.
+    """
     # Get all featured doctors, regardless of enabled status for admin view
     featured_doctors = db.query(FeaturedDoctor).all()
     result = []
@@ -1226,6 +1273,16 @@ def get_featured_doctors_protected(db: Session = Depends(get_db)):
     for fd in featured_doctors:
         # Check if doctor and user relationships exist
         if fd.doctor and fd.doctor.user:
+            doc = fd.doctor
+            user = doc.user
+            
+            # Include full location information and contact details
+            formatted_location = None
+            if doc.city and doc.state and doc.country:
+                formatted_location = f"{doc.city}, {doc.state}, {doc.country}"
+            elif doc.address:
+                formatted_location = doc.address
+                
             result.append({
                 "id": fd.id,
                 "doctor_id": fd.doctor_id,
@@ -1233,10 +1290,26 @@ def get_featured_doctors_protected(db: Session = Depends(get_db)):
                 "end_date": fd.end_date,
                 "feature_enabled": fd.feature_enabled,
                 "doctor": {
-                    "id": fd.doctor.id,
-                    "first_name": fd.doctor.user.first_name,
-                    "last_name": fd.doctor.user.last_name,
-                    "specialty": fd.doctor.specialty
+                    "id": doc.id,
+                    "user_id": user.id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "email": user.email,
+                    "phone": user.phone,
+                    "specialty": doc.specialty,
+                    "license_number": doc.license_number,
+                    "bio": doc.bio,
+                    "education": doc.education,
+                    "years_experience": doc.years_experience,
+                    "address": doc.address,
+                    "city": doc.city,
+                    "state": doc.state,
+                    "postal_code": doc.postal_code,
+                    "country": doc.country,
+                    "is_verified": doc.is_verified,
+                    "formatted_location": formatted_location,
+                    "contact": user.phone,
+                    "full_name": f"{user.first_name} {user.last_name}"
                 }
             })
         else:
@@ -1260,6 +1333,18 @@ def get_featured_doctor_by_id(featured_doctor_id: int, db: Session = Depends(get
     featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.id == featured_doctor_id).first()
     if not featured_doctor:
         raise HTTPException(status_code=404, detail="Featured doctor not found")
+    
+    # Get comprehensive doctor information
+    doctor_profile = featured_doctor.doctor
+    doctor_user = doctor_profile.user
+    
+    # Include formatted location
+    formatted_location = None
+    if doctor_profile.city and doctor_profile.state and doctor_profile.country:
+        formatted_location = f"{doctor_profile.city}, {doctor_profile.state}, {doctor_profile.country}"
+    elif doctor_profile.address:
+        formatted_location = doctor_profile.address
+    
     return {
         "id": featured_doctor.id,
         "doctor_id": featured_doctor.doctor_id,
@@ -1267,10 +1352,25 @@ def get_featured_doctor_by_id(featured_doctor_id: int, db: Session = Depends(get
         "end_date": featured_doctor.end_date,
         "feature_enabled": featured_doctor.feature_enabled,
         "doctor": {
-            "id": featured_doctor.doctor.id,
-            "first_name": featured_doctor.doctor.user.first_name,
-            "last_name": featured_doctor.doctor.user.last_name,
-            "specialty": featured_doctor.doctor.specialty
+            "id": doctor_profile.id,
+            "user_id": doctor_user.id,
+            "first_name": doctor_user.first_name,
+            "last_name": doctor_user.last_name,
+            "email": doctor_user.email,
+            "phone": doctor_user.phone,
+            "specialty": doctor_profile.specialty,
+            "license_number": doctor_profile.license_number,
+            "bio": doctor_profile.bio,
+            "education": doctor_profile.education,
+            "years_experience": doctor_profile.years_experience,
+            "address": doctor_profile.address,
+            "city": doctor_profile.city,
+            "state": doctor_profile.state,
+            "postal_code": doctor_profile.postal_code,
+            "country": doctor_profile.country,
+            "is_verified": doctor_profile.is_verified,
+            "formatted_location": formatted_location,
+            "full_name": f"{doctor_user.first_name} {doctor_user.last_name}"
         }
     }
 
@@ -1439,7 +1539,7 @@ async def get_verified_doctors_for_home(
     max_count = min(settings.max_doctors if settings else 10, limit)
     
     if show_verified:
-        # Return verified doctors
+        # Return verified doctors with complete information
         doctors = (db.query(DoctorProfile)
                   .filter(DoctorProfile.is_verified == True)
                   .order_by(func.random())  # Random order for variety
@@ -1449,35 +1549,78 @@ async def get_verified_doctors_for_home(
         result = []
         for doc in doctors:
             if doc.user:  # Check if user exists
+                # Create a more comprehensive doctor profile
+                formatted_location = None
+                if doc.city and doc.state and doc.country:
+                    formatted_location = f"{doc.city}, {doc.state}, {doc.country}"
+                elif doc.address:
+                    formatted_location = doc.address
+                    
                 result.append({
                     "id": doc.id,
+                    "user_id": doc.user_id,
                     "first_name": doc.user.first_name,
                     "last_name": doc.user.last_name,
+                    "full_name": f"{doc.user.first_name} {doc.user.last_name}",
+                    "email": doc.user.email,
+                    "phone": doc.user.phone,
                     "specialty": doc.specialty,
-                    "years_experience": doc.years_experience,
+                    "license_number": doc.license_number,
                     "bio": doc.bio,
                     "education": doc.education,
-                    "is_verified": doc.is_verified
+                    "years_experience": doc.years_experience,
+                    "address": doc.address,
+                    "city": doc.city,
+                    "state": doc.state,
+                    "postal_code": doc.postal_code,
+                    "country": doc.country,
+                    "is_verified": doc.is_verified,
+                    "verification_notes": doc.verification_notes,
+                    "formatted_location": formatted_location
                 })
         return result
     else:
-        # Return featured doctors instead
+        # Return featured doctors with complete information
         featured_doctors = db.query(FeaturedDoctor).filter(FeaturedDoctor.feature_enabled == True).limit(max_count).all()
         result = []
         
         for fd in featured_doctors:
             # Only include entries with valid doctor and user relationships
             if fd.doctor and fd.doctor.user:
+                doc = fd.doctor
+                user = doc.user
+                
+                # Create a formatted location string
+                formatted_location = None
+                if doc.city and doc.state and doc.country:
+                    formatted_location = f"{doc.city}, {doc.state}, {doc.country}"
+                elif doc.address:
+                    formatted_location = doc.address
+                    
                 result.append({
-                    "id": fd.doctor.id,
-                    "first_name": fd.doctor.user.first_name,
-                    "last_name": fd.doctor.user.last_name,
-                    "specialty": fd.doctor.specialty,
+                    "id": doc.id,
+                    "user_id": doc.user_id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "full_name": f"{user.first_name} {user.last_name}",
+                    "email": user.email,
+                    "phone": user.phone,
+                    "specialty": doc.specialty,
+                    "license_number": doc.license_number,
+                    "bio": doc.bio,
+                    "education": doc.education,
+                    "years_experience": doc.years_experience,
+                    "address": doc.address,
+                    "city": doc.city,
+                    "state": doc.state,
+                    "postal_code": doc.postal_code,
+                    "country": doc.country,
+                    "is_verified": doc.is_verified,
+                    "verification_notes": doc.verification_notes,
+                    "formatted_location": formatted_location,
                     "featured": True,
-                    "years_experience": fd.doctor.years_experience,
-                    "bio": fd.doctor.bio,
-                    "education": fd.doctor.education,
-                    "is_verified": fd.doctor.is_verified
+                    "feature_start_date": fd.start_date.isoformat() if fd.start_date else None,
+                    "feature_end_date": fd.end_date.isoformat() if fd.end_date else None
                 })
         
         return result
@@ -1502,12 +1645,20 @@ def search_doctors_by_name(
     for user in matching_users:
         # For each matching user with DOCTOR role, get their doctor profile
         if user.doctor_profile:
+            # Create a formatted location string
+            formatted_location = None
+            if user.doctor_profile.city and user.doctor_profile.state and user.doctor_profile.country:
+                formatted_location = f"{user.doctor_profile.city}, {user.doctor_profile.state}, {user.doctor_profile.country}"
+            elif user.doctor_profile.address:
+                formatted_location = user.doctor_profile.address
+            
             # Create a more comprehensive response with additional profile details
             result.append({
                 "doctor_id": user.doctor_profile.id,
                 "user_id": user.id,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "full_name": f"{user.first_name} {user.last_name}",
                 "email": user.email,
                 "phone": user.phone,
                 "specialty": user.doctor_profile.specialty or "",
@@ -1520,7 +1671,8 @@ def search_doctors_by_name(
                 "state": user.doctor_profile.state,
                 "postal_code": user.doctor_profile.postal_code,
                 "country": user.doctor_profile.country,
-                "is_verified": user.doctor_profile.is_verified
+                "is_verified": user.doctor_profile.is_verified,
+                "formatted_location": formatted_location
             })
     
     return result
