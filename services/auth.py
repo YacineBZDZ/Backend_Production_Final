@@ -233,6 +233,13 @@ async def register(
             detail="Email already registered"
         )
     
+    # Check if phone already exists
+    if user_data.phone and db.query(User).filter(User.phone == user_data.phone).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phone number already registered"
+        )
+    
     # Generate salt and hash password
     salt = AuthHandler.generate_salt()
     hashed_password = AuthHandler.get_password_hash(user_data.password)
@@ -276,6 +283,7 @@ async def register(
                 country=None
             )
             db.add(profile)
+            db.flush()  # Ensure the profile is added before sending emails
             
             # Send email to admin about new doctor registration
             admin_subject = "New Doctor Registration - TabibMeet"
@@ -333,7 +341,7 @@ async def register(
             db.add(profile)
             success_message = "Patient account created successfully"
         
-        # Commit all changes
+        # Commit all changes after successfully creating both user and profile
         db.commit()
         db.refresh(new_user)
         
@@ -368,12 +376,39 @@ async def register(
             }
     except Exception as e:
         db.rollback()
-        # Log the actual error for debugging
-        print(f"Registration error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create user profile: {str(e)}"
-        )
+        # Log the full error and handle specific database errors
+        error_message = str(e)
+        print(f"Registration error: {error_message}")
+        
+        if "duplicate key" in error_message.lower():
+            if "license_number" in error_message.lower():
+                # Handle duplicate license number
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="License number already exists. Please contact support."
+                )
+            elif "email" in error_message.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered"
+                )
+            elif "phone" in error_message.lower() or "users_phone_key" in error_message.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered"
+                )
+            else:
+                # Generic duplicate key error
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Registration failed: duplicate entry found"
+                )
+        else:
+            # Other unexpected errors
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user profile. Please try again later."
+            )
 
 # Add a new endpoint for admins to verify doctors
 @router.post("/doctor/verify/{doctor_id}", status_code=status.HTTP_200_OK)
