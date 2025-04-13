@@ -104,7 +104,9 @@ class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    #address: Optional[str] = None  # For updating PatientProfile.address if applicable
+    address: Optional[str] = None
+    # Additional fields that might be common to all users
+    # Note: password and email updates use separate endpoints with verification
 
 # New models for verification payloads
 class PhoneVerificationRequest(BaseModel):
@@ -401,16 +403,28 @@ async def update_user_profile(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
+    # Extract update data, excluding password and email which require separate verification
     update_data = profile_update.dict(exclude_unset=True)
+    
+    # Update basic user fields that don't require special handling
     for key, value in update_data.items():
-        if key == "address":
-            # update address in patient profile if user is a patient
-            if current_user.role == UserRole.PATIENT:
-                if current_user.patient_profile:
-                    current_user.patient_profile.address = value
+        # Skip fields that need special handling
+        if key in ["address", "password", "email"]:
             continue
         setattr(current_user, key, value)
-
+    
+    # Handle specialized fields by user type
+    if current_user.role == UserRole.PATIENT and current_user.patient_profile:
+        # Update address in patient profile
+        if "address" in update_data:
+            current_user.patient_profile.address = update_data["address"]
+    
+    elif current_user.role == UserRole.DOCTOR and current_user.doctor_profile:
+        # Update address in doctor profile
+        if "address" in update_data:
+            current_user.doctor_profile.address = update_data["address"]
+    
+    # Commit changes
     db.commit()
     db.refresh(current_user)
     
@@ -420,7 +434,6 @@ async def update_user_profile(
         profile_data = {
             "department": current_user.admin_profile.department,
             "permissions": current_user.admin_profile.permissions,
-           # "address": current_user.admin_profile.address
         }
     elif current_user.role == UserRole.DOCTOR and current_user.doctor_profile:
         profile_data = {
@@ -429,13 +442,18 @@ async def update_user_profile(
             "bio": current_user.doctor_profile.bio,
             "education": current_user.doctor_profile.education,
             "years_experience": current_user.doctor_profile.years_experience,
-          #  "address": current_user.doctor_profile.address
+            "address": current_user.doctor_profile.address,
+            "city": current_user.doctor_profile.city,
+            "state": current_user.doctor_profile.state,
+            "postal_code": current_user.doctor_profile.postal_code,
+            "country": current_user.doctor_profile.country,
+            "is_verified": current_user.doctor_profile.is_verified
         }
     elif current_user.role == UserRole.PATIENT and current_user.patient_profile:
         profile_data = {
             "date_of_birth": current_user.patient_profile.date_of_birth.isoformat() if current_user.patient_profile.date_of_birth else None,
             "gender": current_user.patient_profile.gender,
-            #"address": current_user.patient_profile.address,
+            "address": current_user.patient_profile.address,
             "medical_history": current_user.patient_profile.medical_history,
             "insurance_info": current_user.patient_profile.insurance_info,
             "emergency_contact_name": current_user.patient_profile.emergency_contact_name,
