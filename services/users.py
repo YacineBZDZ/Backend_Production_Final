@@ -75,7 +75,7 @@ class DoctorProfileUpdate(BaseModel):
     state: Optional[str] = None
     postal_code: Optional[str] = None
     country: Optional[str] = None
-    professional_phone: Optional[str] = None  # Add professional phone field
+    personal_phone: Optional[str] = None  # Changed from professional_phone to personal_phone
 
 class PatientProfileUpdate(BaseModel):
     date_of_birth: Optional[str] = None
@@ -476,8 +476,8 @@ async def update_doctor_profile(
         doctor_profile.postal_code = profile_data.postal_code
     if profile_data.country is not None:
         doctor_profile.country = profile_data.country
-    if profile_data.professional_phone is not None:
-        doctor_profile.professional_phone = profile_data.professional_phone
+    if profile_data.personal_phone is not None:
+        doctor_profile.personal_phone = profile_data.personal_phone  # Changed field name
     
     db.commit()
     
@@ -494,7 +494,7 @@ async def update_doctor_profile(
             "state": doctor_profile.state,
             "postal_code": doctor_profile.postal_code,
             "country": doctor_profile.country,
-            "professional_phone": doctor_profile.professional_phone
+            "personal_phone": doctor_profile.personal_phone  # Changed field name
         }
     }
 
@@ -528,7 +528,7 @@ async def get_doctor_details(
         "state": doctor_profile.state,
         "postal_code": doctor_profile.postal_code,
         "country": doctor_profile.country,
-        "professional_phone": doctor_profile.professional_phone,
+        "personal_phone": doctor_profile.personal_phone,  # Changed field name
         "is_verified": doctor_profile.is_verified
     }
 
@@ -1264,7 +1264,7 @@ def get_featured_doctors_protected(db: Session = Depends(get_db)):
                     "last_name": user.last_name,
                     "email": user.email,
                     "phone": user.phone,
-                    "professional_phone": doc.professional_phone,
+                    "personal_phone": doc.personal_phone,  # Changed field name
                     "specialty": doc.specialty,
                     "license_number": doc.license_number,
                     "bio": doc.bio,
@@ -1277,7 +1277,7 @@ def get_featured_doctors_protected(db: Session = Depends(get_db)):
                     "country": doc.country,
                     "is_verified": doc.is_verified,
                     "formatted_location": formatted_location,
-                    "contact": doc.professional_phone or user.phone,  # Prioritize professional phone
+                    "contact": doc.personal_phone or user.phone,  # Changed field name
                     "full_name": f"{user.first_name} {user.last_name}"
                 }
             })
@@ -1320,7 +1320,7 @@ def get_featured_doctor_by_id(featured_doctor_id: int, db: Session = Depends(get
             "last_name": doctor_user.last_name,
             "email": doctor_user.email,
             "phone": doctor_user.phone,
-            "professional_phone": doctor_profile.professional_phone,
+            "personal_phone": doctor_profile.personal_phone,  # Changed field name
             "specialty": doctor_profile.specialty,
             "license_number": doctor_profile.license_number,
             "bio": doctor_profile.bio,
@@ -1516,7 +1516,7 @@ async def get_verified_doctors_for_home(
                     "first_name": doc.user.first_name,
                     "last_name": doc.user.last_name,
                     "email": doc.user.email,
-                    "professional_phone": doc.professional_phone,
+                    "personal_phone": doc.personal_phone,  # Changed field name
                     "specialty": doc.specialty,
                     "license_number": doc.license_number,
                     "bio": doc.bio,
@@ -1549,7 +1549,7 @@ async def get_verified_doctors_for_home(
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
-                    "professional_phone": doc.professional_phone,
+                    "personal_phone": doc.personal_phone,  # Changed field name
                     "specialty": doc.specialty,
                     "license_number": doc.license_number,
                     "bio": doc.bio,

@@ -1,5 +1,5 @@
 """
-Migration script to add the professional_phone column to the doctor_profiles table.
+Migration script to add the personal_phone column to the doctor_profiles table.
 Run this script directly to apply the migration.
 """
 
@@ -19,24 +19,24 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 def run_migration():
-    """Add professional_phone column to doctor_profiles table"""
+    """Add personal_phone column to doctor_profiles table"""
     try:
-        logger.info("Starting migration: Adding professional_phone to doctor_profiles...")
+        logger.info("Starting migration: Adding personal_phone to doctor_profiles...")
         
         # Using SQLAlchemy Core for direct SQL execution
         with engine.connect() as connection:
             # Check if column already exists
-            inspector = connection.dialect.has_column(connection.engine, 'doctor_profiles', 'professional_phone')
+            inspector = connection.dialect.has_column(connection.engine, 'doctor_profiles', 'personal_phone')
             
             if inspector:
-                logger.info("Column 'professional_phone' already exists. Skipping...")
+                logger.info("Column 'personal_phone' already exists. Skipping...")
                 return
             
             # Add column
             connection.execute(text(
-                "ALTER TABLE doctor_profiles ADD COLUMN professional_phone VARCHAR;"))
+                "ALTER TABLE doctor_profiles ADD COLUMN personal_phone VARCHAR;"))
             
-            logger.info("Migration successful: professional_phone column added to doctor_profiles table")
+            logger.info("Migration successful: personal_phone column added to doctor_profiles table")
     
     except Exception as e:
         logger.error(f"Migration failed: {str(e)}")

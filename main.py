@@ -98,6 +98,38 @@ def run_professional_phone_migration():
         # The application should continue even if this migration fails
         # It's not critical enough to prevent the app from starting
 
+# Function to add personal_phone column to doctor_profiles table
+def run_personal_phone_migration():
+    """Execute migration to add personal_phone column to doctor_profiles if it doesn't exist"""
+    logger.info("Checking if personal_phone column needs to be added to doctor_profiles...")
+    
+    try:
+        # Check if column already exists
+        with engine.connect() as connection:
+            # Check if the column exists
+            inspector = connection.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='doctor_profiles' AND column_name='personal_phone'"
+            ))
+            column_exists = inspector.fetchone() is not None
+            
+            if column_exists:
+                logger.info("Column 'personal_phone' already exists in doctor_profiles table.")
+                return
+            
+            # Add the column if it doesn't exist
+            logger.info("Adding 'personal_phone' column to doctor_profiles table...")
+            connection.execute(text(
+                "ALTER TABLE doctor_profiles ADD COLUMN personal_phone VARCHAR;"
+            ))
+            connection.commit()
+            logger.info("Successfully added personal_phone column to doctor_profiles table.")
+            
+    except Exception as e:
+        logger.error(f"Error checking/adding personal_phone column: {str(e)}")
+        # The application should continue even if this migration fails
+        # It's not critical enough to prevent the app from starting
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create test users on startup
@@ -110,6 +142,7 @@ async def lifespan(app: FastAPI):
     
     # Run database migrations for schema updates
     run_professional_phone_migration()
+    run_personal_phone_migration()
     
     # Start background tasks on startup
     task = asyncio.create_task(appointment_updater.update_past_appointments())

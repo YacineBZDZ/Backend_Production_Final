@@ -92,7 +92,7 @@ class DoctorProfile(Base):
     state = Column(String, nullable=True)  # State/Province field
     postal_code = Column(String, nullable=True)  # Postal code field
     country = Column(String, nullable=True)  # Country field
-    professional_phone = Column(String, nullable=True)  # New field for professional phone number
+    personal_phone = Column(String, nullable=True)  # Changed from professional_phone to personal_phone
     
     user = relationship("User", back_populates="doctor_profile")
     availability = relationship("DoctorAvailability", back_populates="doctor")
