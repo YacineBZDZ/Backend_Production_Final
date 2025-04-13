@@ -461,3 +461,4 @@ def get_past_appointments(session: Session, user: User):
     
     # For any other roles (should not happen with the endpoint check)
     return []
+# somme modifications
