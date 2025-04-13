@@ -681,16 +681,49 @@ async def logout(
 # Add a new endpoint to validate tokens
 @router.post("/validate-token")
 async def validate_token(
-    token: str,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
     Validate an access token without requiring full authentication
+    Enhanced for web app support to prevent unintended logouts
+    
+    Accepts token via:
+    - Authorization header
+    - Request body
+    - Query parameter
     
     Returns:
         - 200 OK with user details if token is valid
         - 401 Unauthorized if token is invalid
     """
+    token = None
+    
+    # Check Authorization header first (standard method)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    
+    # If no token in header, check request body
+    if not token:
+        try:
+            body = await request.json()
+            token = body.get("token") or body.get("access_token")
+        except:
+            # Body parsing failed, continue to other methods
+            pass
+    
+    # If still no token, check query parameters
+    if not token:
+        token = request.query_params.get("token") or request.query_params.get("access_token")
+    
+    # If no token found by any method, return error
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No token provided",
+        )
+    
     try:
         # Decode the token
         payload = AuthHandler.decode_token(token)
@@ -698,7 +731,7 @@ async def validate_token(
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
+                detail="Invalid token format",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -718,24 +751,192 @@ async def validate_token(
                 detail="Inactive user account",
             )
         
-        # Token is valid, return user details
+        # For web apps: check if a token refresh is recommended soon
+        # This helps clients implement proactive token refresh
+        exp_timestamp = payload.get("exp", 0)
+        current_timestamp = datetime.utcnow().timestamp()
+        time_remaining = exp_timestamp - current_timestamp
+        refresh_recommended = time_remaining < 300  # Less than 5 minutes remaining
+        
+        # Token is valid, return user details and token status
         return {
             "valid": True,
             "user_id": user.id,
             "role": user.role.value,
-            "email": user.email
+            "email": user.email,
+            "refresh_recommended": refresh_recommended,
+            "expires_in": int(time_remaining) if time_remaining > 0 else 0
         }
         
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
-    except Exception:
+    except Exception as e:
+        # Log the actual error for debugging
+        print(f"Token validation error: {str(e)}")
         # Any other exception means the token is invalid
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+# Add a silent refresh endpoint for web apps
+@router.post("/silent-refresh", response_model=Token)
+async def silent_refresh(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Silently refresh tokens for web applications to prevent session timeouts during active usage.
+    Uses refresh token from:
+    - Request body (refresh_token field)
+    - Authorization header (if refresh token format is detected)
+    - Cookies (if implemented)
+    """
+    refresh_token = None
+    
+    # Try to get token from request body first
+    try:
+        body = await request.json()
+        refresh_token = body.get("refresh_token")
+    except:
+        pass
+        
+    # If no token in body, check Authorization header
+    if not refresh_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            potential_token = auth_header.split(" ")[1]
+            # Check if this might be a refresh token (basic validation)
+            try:
+                payload = AuthHandler.decode_token(potential_token)
+                if "sub" in payload and len(potential_token) > 100:  # Rough check for refresh token
+                    refresh_token = potential_token
+            except:
+                pass
+    
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No refresh token provided"
+        )
+    
+    try:
+        # Decode and validate the refresh token
+        payload = AuthHandler.decode_token(refresh_token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token format",
+            )
+        
+        # Get the user and verify token matches
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+            )
+        
+        # Extra security check: stored refresh token must match
+        # This prevents refresh token reuse after logout
+        if user.refresh_token != refresh_token:
+            # For web app: if token doesn't match, it could be due to
+            # another tab/window/device logging out
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired or ended on another device",
+            )
+        
+        # Create new tokens
+        access_token = AuthHandler.create_access_token({"sub": str(user.id), "role": user.role.value})
+        new_refresh_token = AuthHandler.create_refresh_token({"sub": str(user.id)})
+        
+        # Update refresh token in database
+        user.refresh_token = new_refresh_token
+        db.commit()
+        
+        return Token(
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            token_type="bearer",
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user_id=user.id,
+            role=user.role.value
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Silent refresh error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token or session expired",
+        )
+
+# Enhanced logout endpoint for web app
+@router.post("/logout")
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Enhanced logout endpoint that can handle both authenticated requests
+    and token-based requests, with special handling for web applications.
+    
+    For web apps, this properly invalidates the refresh token to prevent
+    session persistence across multiple tabs/windows.
+    """
+    # First try to get the token from the Authorization header
+    auth_header = request.headers.get("Authorization")
+    token = None
+    token_type = "access"  # Default assumption
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    
+    # If no Authorization header, check for tokens in request body
+    if not token:
+        try:
+            body = await request.json()
+            # Try to get access token first
+            token = body.get("token") or body.get("access_token")
+            
+            # If no access token but refresh token exists, use that instead
+            if not token and body.get("refresh_token"):
+                token = body.get("refresh_token")
+                token_type = "refresh"
+        except:
+            # If request body can't be parsed, proceed without token
+            pass
+    
+    user_id = None
+    
+    # If we have a token, try to decode it to get user_id
+    if token:
+        try:
+            payload = AuthHandler.decode_token(token)
+            user_id = payload.get("sub")
+        except:
+            # Token is invalid, but we'll still continue
+            pass
+    
+    # If we have a user_id, find and update the user record
+    if user_id:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            # For web apps: always clear the refresh token on explicit logout
+            # This ensures all tabs/windows will lose their session
+            if user.refresh_token:
+                user.refresh_token = None
+                db.commit()
+                
+            return {"message": "Successfully logged out", "status": "complete"}
+    
+    # If we reached here without finding a valid user, return a generic success
+    # This avoids leaking information about what went wrong
+    return {"message": "Successfully logged out", "status": "no_session"}
 
 # Update setup_two_factor to use the new helper function
 @router.post("/2fa/setup")
