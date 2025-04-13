@@ -335,8 +335,37 @@ async def register(
         
         # Commit all changes
         db.commit()
+        db.refresh(new_user)
         
-        return {"message": success_message, "user_id": new_user.id, "role": user_data.role.value}
+        # For doctor accounts, automatically log in and return tokens
+        if user_data.role == UserRole.DOCTOR:
+            # Create tokens for automatic login
+            access_token = AuthHandler.create_access_token({"sub": str(new_user.id), "role": new_user.role.value})
+            refresh_token = AuthHandler.create_refresh_token({"sub": str(new_user.id)})
+            
+            # Store refresh token in database
+            new_user.refresh_token = refresh_token
+            new_user.last_login = datetime.utcnow()
+            db.commit()
+            
+            # Return success message with tokens
+            return {
+                "message": success_message,
+                "user_id": new_user.id,
+                "role": user_data.role.value,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                "auto_login": True
+            }
+        else:
+            # For non-doctor accounts, return the standard response
+            return {
+                "message": success_message,
+                "user_id": new_user.id,
+                "role": user_data.role.value
+            }
     except Exception as e:
         db.rollback()
         # Log the actual error for debugging
