@@ -95,7 +95,27 @@ class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    #address: Optional[str] = None  # For updating PatientProfile.address if applicable
+    # Doctor profile fields
+    specialty: Optional[str] = None
+    bio: Optional[str] = None
+    education: Optional[str] = None
+    years_experience: Optional[int] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    personal_phone: Optional[str] = None
+    # Patient profile fields
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    medical_history: Optional[str] = None
+    insurance_info: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    # Admin profile fields
+    department: Optional[str] = None
+    permissions: Optional[List[str]] = None
 
 # New models for verification payloads
 class PhoneVerificationRequest(BaseModel):
@@ -382,26 +402,63 @@ async def update_user_profile(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    update_data = profile_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        if key == "address":
-            # update address in patient profile if user is a patient
-            if current_user.role == UserRole.PATIENT:
-                if current_user.patient_profile:
-                    current_user.patient_profile.address = value
-            continue
-        setattr(current_user, key, value)
-
+    # Extract basic user fields
+    user_fields = ["first_name", "last_name", "phone"]
+    user_update_data = {k: v for k, v in profile_update.dict(exclude_unset=True).items() if k in user_fields}
+    
+    # Apply basic user field updates
+    for field, value in user_update_data.items():
+        setattr(current_user, field, value)
+    
+    # Handle role-specific profile updates
+    if current_user.role == UserRole.DOCTOR and current_user.doctor_profile:
+        doctor_fields = ["specialty", "bio", "education", "years_experience", 
+                         "address", "city", "state", "postal_code", "country", "personal_phone"]
+        doctor_update_data = {k: v for k, v in profile_update.dict(exclude_unset=True).items() 
+                             if k in doctor_fields and v is not None}
+        
+        for field, value in doctor_update_data.items():
+            setattr(current_user.doctor_profile, field, value)
+    
+    elif current_user.role == UserRole.PATIENT and current_user.patient_profile:
+        patient_fields = ["date_of_birth", "gender", "address", "medical_history", 
+                         "insurance_info", "emergency_contact_name", "emergency_contact_phone"]
+        patient_update_data = {k: v for k, v in profile_update.dict(exclude_unset=True).items() 
+                              if k in patient_fields and v is not None}
+        
+        for field, value in patient_update_data.items():
+            if field == "date_of_birth" and value:
+                from datetime import datetime
+                try:
+                    current_user.patient_profile.date_of_birth = datetime.fromisoformat(value)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid date format for date_of_birth")
+            else:
+                setattr(current_user.patient_profile, field, value)
+    
+    elif current_user.role == UserRole.ADMIN and current_user.admin_profile:
+        admin_fields = ["department", "permissions"]
+        admin_update_data = {k: v for k, v in profile_update.dict(exclude_unset=True).items() 
+                            if k in admin_fields and v is not None}
+        
+        for field, value in admin_update_data.items():
+            if field == "permissions":
+                if value:
+                    current_user.admin_profile.permissions = ",".join(value)
+                else:
+                    current_user.admin_profile.permissions = None
+            else:
+                setattr(current_user.admin_profile, field, value)
+    
     db.commit()
     db.refresh(current_user)
     
-    # Prepare role-specific profile data
+    # Prepare role-specific profile data for response
     profile_data = {}
     if current_user.role == UserRole.ADMIN and current_user.admin_profile:
         profile_data = {
             "department": current_user.admin_profile.department,
-            "permissions": current_user.admin_profile.permissions,
-           # "address": current_user.admin_profile.address
+            "permissions": current_user.admin_profile.permissions.split(",") if current_user.admin_profile.permissions else []
         }
     elif current_user.role == UserRole.DOCTOR and current_user.doctor_profile:
         profile_data = {
@@ -410,13 +467,18 @@ async def update_user_profile(
             "bio": current_user.doctor_profile.bio,
             "education": current_user.doctor_profile.education,
             "years_experience": current_user.doctor_profile.years_experience,
-          #  "address": current_user.doctor_profile.address
+            "address": current_user.doctor_profile.address,
+            "city": current_user.doctor_profile.city,
+            "state": current_user.doctor_profile.state,
+            "postal_code": current_user.doctor_profile.postal_code,
+            "country": current_user.doctor_profile.country,
+            "personal_phone": current_user.doctor_profile.personal_phone
         }
     elif current_user.role == UserRole.PATIENT and current_user.patient_profile:
         profile_data = {
             "date_of_birth": current_user.patient_profile.date_of_birth.isoformat() if current_user.patient_profile.date_of_birth else None,
             "gender": current_user.patient_profile.gender,
-            #"address": current_user.patient_profile.address,
+            "address": current_user.patient_profile.address,
             "medical_history": current_user.patient_profile.medical_history,
             "insurance_info": current_user.patient_profile.insurance_info,
             "emergency_contact_name": current_user.patient_profile.emergency_contact_name,
