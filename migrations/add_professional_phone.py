@@ -1,46 +1,23 @@
-"""
-Migration script to add the personal_phone column to the doctor_profiles table.
-Run this script directly to apply the migration.
-"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.engine.reflection import Inspector
 
-import sys
-import os
-import logging
-from sqlalchemy import create_engine, Column, String, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+def upgrade():
+    bind = op.get_bind()
+    inspector = Inspector.from_engine(bind)
+    existing_columns = [col["name"] for col in inspector.get_columns("doctor_profile")]
 
-# Add parent directory to path to access models and database modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database.base import engine
-from core.config import get_settings
+    columns_to_add = {
+        "address": sa.Column("address", sa.String(length=255), nullable=True),
+        "city": sa.Column("city", sa.String(length=100), nullable=True),
+        "state": sa.Column("state", sa.String(length=100), nullable=True),
+        "postal_code": sa.Column("postal_code", sa.String(length=50), nullable=True),
+        "country": sa.Column("country", sa.String(length=100), nullable=True),
+    }
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+    for col_name, col_def in columns_to_add.items():
+        if col_name not in existing_columns:
+            op.add_column("doctor_profile", col_def)
 
-def run_migration():
-    """Add personal_phone column to doctor_profiles table"""
-    try:
-        logger.info("Starting migration: Adding personal_phone to doctor_profiles...")
-        
-        # Using SQLAlchemy Core for direct SQL execution
-        with engine.connect() as connection:
-            # Check if column already exists
-            inspector = connection.dialect.has_column(connection.engine, 'doctor_profiles', 'personal_phone')
-            
-            if inspector:
-                logger.info("Column 'personal_phone' already exists. Skipping...")
-                return
-            
-            # Add column
-            connection.execute(text(
-                "ALTER TABLE doctor_profiles ADD COLUMN personal_phone VARCHAR;"))
-            
-            logger.info("Migration successful: personal_phone column added to doctor_profiles table")
-    
-    except Exception as e:
-        logger.error(f"Migration failed: {str(e)}")
-        raise
-
-if __name__ == "__main__":
-    run_migration()
+def downgrade():
+    pass
