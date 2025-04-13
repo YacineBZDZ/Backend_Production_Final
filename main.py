@@ -19,6 +19,9 @@ from database.session import close_db_connections
 from services.users import public_router as users_public_router
 # Import test user creation functions
 from database.create_test_doctor import create_verified_test_doctor, create_verified_test_admin, create_test_patient
+# Import database migration utilities
+from database.base import engine
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(
@@ -63,6 +66,38 @@ def setup_test_users():
     except Exception as e:
         logger.error(f"Error creating test users: {e}")
 
+# Function to add professional_phone column to doctor_profiles table
+def run_professional_phone_migration():
+    """Execute migration to add professional_phone column to doctor_profiles if it doesn't exist"""
+    logger.info("Checking if professional_phone column needs to be added to doctor_profiles...")
+    
+    try:
+        # Check if column already exists
+        with engine.connect() as connection:
+            # Check if the column exists
+            inspector = connection.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='doctor_profiles' AND column_name='professional_phone'"
+            ))
+            column_exists = inspector.fetchone() is not None
+            
+            if column_exists:
+                logger.info("Column 'professional_phone' already exists in doctor_profiles table.")
+                return
+            
+            # Add the column if it doesn't exist
+            logger.info("Adding 'professional_phone' column to doctor_profiles table...")
+            connection.execute(text(
+                "ALTER TABLE doctor_profiles ADD COLUMN professional_phone VARCHAR;"
+            ))
+            connection.commit()
+            logger.info("Successfully added professional_phone column to doctor_profiles table.")
+            
+    except Exception as e:
+        logger.error(f"Error checking/adding professional_phone column: {str(e)}")
+        # The application should continue even if this migration fails
+        # It's not critical enough to prevent the app from starting
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create test users on startup
@@ -72,6 +107,9 @@ async def lifespan(app: FastAPI):
         logger.info("Doctor: testdoctor1@tabibmeet.com / Testtest@1!")
         logger.info("Admin: testadmin@tabibmeet.com / AdminTest@1!")
         logger.info("Patient: testpatient@tabibmeet.com / PatientTest@1!")
+    
+    # Run database migrations for schema updates
+    run_professional_phone_migration()
     
     # Start background tasks on startup
     task = asyncio.create_task(appointment_updater.update_past_appointments())
