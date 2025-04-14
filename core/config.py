@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     EMAIL_USER: str = os.getenv("EMAIL_USER", "no-reply@tabibmeet.com")
 
 #    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "tylqttmkfronojit")
-    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "nwgh-byai-vdea-npwm")
+    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "nwghbyaivdeanpwm")
 
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "no-reply@tabibmeet.com")
     EMAIL_USE_TLS: bool = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
