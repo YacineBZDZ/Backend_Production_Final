@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     
     # Email settings
 #    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "mail.tabibmeet.com")
+    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "mail.privateemail.com")
 
     EMAIL_PORT: int = int(os.getenv("EMAIL_PORT", "587"))
 #    EMAIL_USER: str = os.getenv("EMAIL_USER", "jakmca3@gmail.com")
