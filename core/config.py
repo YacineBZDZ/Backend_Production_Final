@@ -9,7 +9,7 @@ load_dotenv()
 
 class Settings(BaseSettings):
     # Database settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://tabibmeet_user:tHKThyPS0pp549rxnEuKbCs8fa6wiqG4@dpg-cvscbteuk2gs739rua10-a.oregon-postgres.render.com/tabibmeet")
+    DATABASE_URL: str = os.getenv("DATABASE_URL")
     
     # Application settings
     PROJECT_NAME: str = "TabibMeet API"
@@ -22,27 +22,27 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     
     # JWT Settings
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "61e16bf371dc9f01c48fc89d...9d0586932ab33793240680a")
-    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM")
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
     
     # Email settings
 #    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "mail.privateemail.com")
+    EMAIL_HOST: str = os.getenv("EMAIL_HOST")
 
-    EMAIL_PORT: int = int(os.getenv("EMAIL_PORT", "587"))
+    EMAIL_PORT: int = int(os.getenv("EMAIL_PORT"))
 #    EMAIL_USER: str = os.getenv("EMAIL_USER", "jakmca3@gmail.com")
-    EMAIL_USER: str = os.getenv("EMAIL_USER", "no-reply@tabibmeet.com")
+    EMAIL_USER: str = os.getenv("EMAIL_USER")
 
 #    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "tylqttmkfronojit")
-    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "nwghbyaivdeanpwm")
+    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD")
 
-    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "no-reply@tabibmeet.com")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM")
     EMAIL_USE_TLS: bool = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
-    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@tabibmeet.com")  # Added admin email
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL")  # Added admin email
     
     # Frontend URL
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://tabibmeet.com")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL")
     
     # CORS settings
     ALLOWED_ORIGINS: List[str] = ["*"]  # In production, specify your domains
