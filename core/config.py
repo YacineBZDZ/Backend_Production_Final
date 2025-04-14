@@ -9,7 +9,7 @@ load_dotenv()
 
 class Settings(BaseSettings):
     # Database settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tabibmeet")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://tabibmeet_user:tHKThyPS0pp549rxnEuKbCs8fa6wiqG4@dpg-cvscbteuk2gs739rua10-a.oregon-postgres.render.com/tabibmeet")
     
     # Application settings
     PROJECT_NAME: str = "TabibMeet API"
@@ -27,16 +27,16 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
     # Email settings
-    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "mail.privateemail.com")
     EMAIL_PORT: int = int(os.getenv("EMAIL_PORT", "587"))
-    EMAIL_USER: str = os.getenv("EMAIL_USER", "jakmca3@gmail.com")
-    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "qicywaqzlsermcul")
+    EMAIL_USER: str = os.getenv("EMAIL_USER", "adminyacine@tabibmeet.com")
+    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "vhsa-vqha-ksuc-mmvo")
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "no-reply@tabibmeet.com")
     EMAIL_USE_TLS: bool = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@tabibmeet.com")  # Added admin email
     
     # Frontend URL
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:34303/")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://tabibmeet.com")
     
     # CORS settings
     ALLOWED_ORIGINS: List[str] = ["*"]  # In production, specify your domains
