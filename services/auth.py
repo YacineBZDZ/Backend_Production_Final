@@ -285,54 +285,62 @@ async def register(
             db.add(profile)
             db.flush()  # Ensure the profile is added before sending emails
             
-            # Send email to admin about new doctor registration
-            admin_subject = "New Doctor Registration - TabibMeet"
-            admin_html_content = f"""
-            <html>
-            <body>
-                <h2>New Doctor Registration Requires Verification</h2>
-                <p>A new doctor has registered on TabibMeet and requires your approval:</p>
-                <table border="1" cellpadding="5" cellspacing="0">
-                    <tr>
-                        <th>Name:</th>
-                        <td>{user_data.first_name} {user_data.last_name}</td>
-                    </tr>
-                    <tr>
-                        <th>Email:</th>
-                        <td>{user_data.email}</td>
-                    </tr>
-                    <tr>
-                        <th>Phone:</th>
-                        <td>{user_data.phone}</td>
-                    </tr>
-                    <tr>
-                        <th>Temporary License:</th>
-                        <td>{temp_license}</td>
-                    </tr>
-                </table>
-                <p>To verify this doctor, log into the admin dashboard and go to the Doctors section.</p>
-                <p><a href="{FRONTEND_URL}/admin/doctors/verify/{new_user.id}">Click here to verify</a></p>
-            </body>
-            </html>
-            """
-            background_tasks.add_task(send_email, ADMIN_EMAIL, admin_subject, admin_html_content)
-            
-            # Notify the doctor about pending verification
-            doctor_subject = "Doctor Registration - Verification Required"
-            doctor_html_content = f"""
-            <html>
-            <body>
-                <h2>Doctor Registration Submitted</h2>
-                <p>Dear Dr. {user_data.first_name} {user_data.last_name},</p>
-                <p>Thank you for registering with TabibMeet. Your registration has been received and is pending verification by our administrators.</p>
-                <p>You can log in to your account, but you will have limited functionality until your credentials are verified. 
-                An administrator will contact you if additional information is required.</p>
-                <p>Temporary License: {temp_license}</p>
-                <p>Best regards,<br>The TabibMeet Team</p>
-            </body>
-            </html>
-            """
-            background_tasks.add_task(send_email, user_data.email, doctor_subject, doctor_html_content)
+            # Set up email sending for doctor registration
+            try:
+                # Send email to admin about new doctor registration
+                admin_subject = "New Doctor Registration - TabibMeet"
+                admin_html_content = f"""
+                <html>
+                <body>
+                    <h2>New Doctor Registration Requires Verification</h2>
+                    <p>A new doctor has registered on TabibMeet and requires your approval:</p>
+                    <table border="1" cellpadding="5" cellspacing="0">
+                        <tr>
+                            <th>Name:</th>
+                            <td>{user_data.first_name} {user_data.last_name}</td>
+                        </tr>
+                        <tr>
+                            <th>Email:</th>
+                            <td>{user_data.email}</td>
+                        </tr>
+                        <tr>
+                            <th>Phone:</th>
+                            <td>{user_data.phone}</td>
+                        </tr>
+                        <tr>
+                            <th>Temporary License:</th>
+                            <td>{temp_license}</td>
+                        </tr>
+                    </table>
+                    <p>To verify this doctor, log into the admin dashboard and go to the Doctors section.</p>
+                    <p><a href="{FRONTEND_URL}/admin/doctors/verify/{new_user.id}">Click here to verify</a></p>
+                </body>
+                </html>
+                """
+                background_tasks.add_task(send_email, ADMIN_EMAIL, admin_subject, admin_html_content)
+                print(f"Admin email task added for {ADMIN_EMAIL}")
+                
+                # Notify the doctor about pending verification
+                doctor_subject = "Doctor Registration - Verification Required"
+                doctor_html_content = f"""
+                <html>
+                <body>
+                    <h2>Doctor Registration Submitted</h2>
+                    <p>Dear Dr. {user_data.first_name} {user_data.last_name},</p>
+                    <p>Thank you for registering with TabibMeet. Your registration has been received and is pending verification by our administrators.</p>
+                    <p>You can log in to your account, but you will have limited functionality until your credentials are verified. 
+                    An administrator will contact you if additional information is required.</p>
+                    <p>Temporary License: {temp_license}</p>
+                    <p>Best regards,<br>The TabibMeet Team</p>
+                </body>
+                </html>
+                """
+                background_tasks.add_task(send_email, user_data.email, doctor_subject, doctor_html_content)
+                print(f"Doctor email task added for {user_data.email}")
+                
+            except Exception as email_error:
+                print(f"Failed to set up registration emails: {str(email_error)}")
+                # Continue with registration even if email setup fails
             
             success_message = "Doctor registration submitted for verification"
             
