@@ -312,9 +312,11 @@ def list_doctors_by_specialty(
     specialty: str,
     db: Session = Depends(get_db)
 ):
+    # Use ilike for case-insensitive matching and normalize the specialty for accent-insensitive comparison
     doctors = db.query(DoctorProfile).filter(
-        func.lower(DoctorProfile.specialty) == func.lower(specialty)
+        func.lower(func.unaccent(DoctorProfile.specialty)).ilike(func.lower(func.unaccent(f"%{specialty}%")))
     ).all()
+    
     response_list = []
     for doc in doctors:
         user_info = doc.user  # The associated User instance
@@ -1653,10 +1655,10 @@ def search_doctors_by_name(
     First searches in the User table to find name matches,
     then filters to only include users who are doctors.
     """
-    # First search for users whose names match the search term
+    # Use unaccent function for accent-insensitive search
     matching_users = db.query(User).filter(
         User.role == UserRole.DOCTOR,
-        func.concat(User.first_name, ' ', User.last_name).ilike(f"%{name}%")
+        func.unaccent(func.concat(User.first_name, ' ', User.last_name)).ilike(func.unaccent(f"%{name}%"))
     ).all()
     
     result = []

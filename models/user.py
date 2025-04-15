@@ -80,7 +80,7 @@ class DoctorProfile(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True)
-    specialty = Column(String, nullable=False)
+    specialty = Column(String(255, collation='utf8mb4_unicode_ci'), nullable=False)  # Updated for Unicode support
     license_number = Column(String, nullable=False, unique=True)
     bio = Column(String, nullable=True)
     education = Column(String, nullable=True)
@@ -92,7 +92,6 @@ class DoctorProfile(Base):
     state = Column(String, nullable=True)  # State/Province field
     postal_code = Column(String, nullable=True)  # Postal code field
     country = Column(String, nullable=True)  # Country field
-    personal_phone = Column(String, nullable=True)  # Changed from professional_phone to personal_phone
     
     user = relationship("User", back_populates="doctor_profile")
     availability = relationship("DoctorAvailability", back_populates="doctor")
