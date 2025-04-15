@@ -80,7 +80,7 @@ class DoctorProfile(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True)
-    specialty = Column(String(255, collation='utf8mb4_unicode_ci'), nullable=False)  # Updated for Unicode support
+    specialty = Column(String, nullable=False)
     license_number = Column(String, nullable=False, unique=True)
     bio = Column(String, nullable=True)
     education = Column(String, nullable=True)
