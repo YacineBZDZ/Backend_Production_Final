@@ -467,7 +467,7 @@ async def register(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create user profile. Please try again later."
-            )
+            )#222
 
 # Add a new endpoint for admins to verify doctors
 @router.post("/doctor/verify/{doctor_id}", status_code=status.HTTP_200_OK)
