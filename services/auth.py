@@ -376,8 +376,6 @@ async def register(
             success_message = "Doctor registration submitted for verification"
             
         else:  # PATIENT
-            from datetime import datetime
-            
             # Convert date_of_birth string to datetime if provided
             date_of_birth = None
             if user_data.date_of_birth:
