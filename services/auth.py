@@ -86,6 +86,28 @@ class UserCreate(BaseModel):
     last_name: str
     phone: str
     role: UserRole
+    
+    # Optional fields for patient profile
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    medical_history: Optional[str] = None
+    insurance_info: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    
+    # Optional fields for doctor profile
+    specialty: Optional[str] = None
+    bio: Optional[str] = None
+    education: Optional[str] = None
+    years_experience: Optional[int] = None
+    license_number: Optional[str] = None
+    
+    # Common fields for both
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
 
     @field_validator('password')
     def password_strength(cls, v):
@@ -266,21 +288,26 @@ async def register(
             success_message = "Admin account created successfully"
             
         elif user_data.role == UserRole.DOCTOR:
-            # Generate a temporary unique license number
-            temp_license = f"TMP-{new_user.id}-{secrets.token_hex(4)}"
+            # Generate a temporary unique license number if not provided
+            license_number = user_data.license_number
+            if not license_number:
+                license_number = f"TMP-{new_user.id}-{secrets.token_hex(4)}"
             
             # Create doctor profile with unverified status
             profile = DoctorProfile(
                 user_id=new_user.id,
-                specialty="Pending Verification",
-                license_number=temp_license,
+                specialty=user_data.specialty or "Pending Verification",
+                license_number=license_number,
                 is_verified=False,
                 verification_notes="Awaiting admin verification",
-                address=None,
-                city=None,
-                state=None,
-                postal_code=None,
-                country=None
+                bio=user_data.bio,
+                education=user_data.education,
+                years_experience=user_data.years_experience,
+                address=user_data.address,
+                city=user_data.city,
+                state=user_data.state,
+                postal_code=user_data.postal_code,
+                country=user_data.country
             )
             db.add(profile)
             db.flush()  # Ensure the profile is added before sending emails
@@ -308,8 +335,12 @@ async def register(
                             <td>{user_data.phone}</td>
                         </tr>
                         <tr>
-                            <th>Temporary License:</th>
-                            <td>{temp_license}</td>
+                            <th>Specialty:</th>
+                            <td>{profile.specialty}</td>
+                        </tr>
+                        <tr>
+                            <th>License Number:</th>
+                            <td>{profile.license_number}</td>
                         </tr>
                     </table>
                     <p>To verify this doctor, log into the admin dashboard and go to the Doctors section.</p>
@@ -330,7 +361,7 @@ async def register(
                     <p>Thank you for registering with TabibMeet. Your registration has been received and is pending verification by our administrators.</p>
                     <p>You can log in to your account, but you will have limited functionality until your credentials are verified. 
                     An administrator will contact you if additional information is required.</p>
-                    <p>Temporary License: {temp_license}</p>
+                    <p>License Number: {profile.license_number}</p>
                     <p>Best regards,<br>The TabibMeet Team</p>
                 </body>
                 </html>
@@ -345,7 +376,27 @@ async def register(
             success_message = "Doctor registration submitted for verification"
             
         else:  # PATIENT
-            profile = PatientProfile(user_id=new_user.id)
+            from datetime import datetime
+            
+            # Convert date_of_birth string to datetime if provided
+            date_of_birth = None
+            if user_data.date_of_birth:
+                try:
+                    date_of_birth = datetime.fromisoformat(user_data.date_of_birth.replace('Z', '+00:00'))
+                except ValueError:
+                    # If date parsing fails, leave as None
+                    pass
+            
+            profile = PatientProfile(
+                user_id=new_user.id,
+                date_of_birth=date_of_birth,
+                gender=user_data.gender,
+                address=user_data.address,
+                medical_history=user_data.medical_history,
+                insurance_info=user_data.insurance_info,
+                emergency_contact_name=user_data.emergency_contact_name,
+                emergency_contact_phone=user_data.emergency_contact_phone
+            )
             db.add(profile)
             success_message = "Patient account created successfully"
         
