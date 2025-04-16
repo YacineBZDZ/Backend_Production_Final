@@ -43,27 +43,49 @@ FRONTEND_URL = settings.FRONTEND_URL
 ADMIN_EMAIL = settings.ADMIN_EMAIL if hasattr(settings, 'ADMIN_EMAIL') else EMAIL_FROM
 
 # Function to send email
-async def send_email(to_email: str, subject: str, html_content: str):
-    """Send an email using SMTP."""
+# NOTE: This function remains synchronous internally, but it will be called by BackgroundTasks
+def send_email_sync(to_email: str, subject: str, html_content: str):
+    """Send an email using SMTP (Synchronous version for BackgroundTasks)."""
     try:
         message = MIMEMultipart("alternative")
         message["Subject"] = subject
         message["From"] = EMAIL_FROM
         message["To"] = to_email
-        
+
         # Add HTML content
         html_part = MIMEText(html_content, "html")
         message.attach(html_part)
-        
+
         # Connect to server and send
+        # Use a context manager for the SMTP connection
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            # Check if TLS/SSL is needed based on port (common practice)
+            if EMAIL_PORT == 587: # Standard port for TLS
+                server.starttls()
+            # For SSL on port 465, you might need smtplib.SMTP_SSL instead
+            # elif EMAIL_PORT == 465:
+            #     # Requires using smtplib.SMTP_SSL(EMAIL_HOST, EMAIL_PORT)
+            #     pass # Adjust connection method if using SSL
+
+            # Only login if credentials are provided
+            if EMAIL_USER and EMAIL_PASSWORD:
+                server.login(EMAIL_USER, EMAIL_PASSWORD)
+
             server.sendmail(EMAIL_FROM, to_email, message.as_string())
-        
+            print(f"Email successfully sent to {to_email}") # Log success
+
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"SMTP Authentication Error sending email to {to_email}: {e}")
+        # Consider logging more details or raising a specific exception
+        return False
+    except smtplib.SMTPException as e:
+        print(f"SMTP Error sending email to {to_email}: {e}")
+        # Handle other SMTP errors (connection, sending, etc.)
+        return False
     except Exception as e:
-        print(f"Error sending email: {e}")
+        # Catch any other unexpected errors during email sending
+        print(f"Unexpected error sending email to {to_email}: {e}")
         return False
 
 # Pydantic models for request/response
@@ -171,25 +193,27 @@ class TwoFactorLoginResponse(BaseModel):
     email: str
 
 # Helper function to generate and send 2FA code
-async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "login") -> str:
+# Make this function synchronous as well for BackgroundTasks
+def generate_and_send_2fa_code_sync(user: User, db: Session, purpose: str = "login") -> str:
     """
-    Generate a 6-digit 2FA code, save it to the user, and send it via email
-    
+    Generate a 6-digit 2FA code, save it to the user, and send it via email (Synchronous).
+
     Args:
         user: The user object
         db: Database session
         purpose: Purpose of the code (login, setup, etc.)
-        
+
     Returns:
         The generated code
     """
     # Generate a random 6-digit code
     code = str(random.randint(100000, 999999))
-    
+
     # Save the code to the user
     user.two_factor_secret = code
-    db.commit()
-    
+    # No need to commit here if called within a transaction that will be committed later
+    # db.commit() # Remove commit from here if called within another transaction
+
     # Determine the appropriate email subject and content
     if purpose == "login":
         subject = "Your TabibMeet Login Verification Code"
@@ -235,10 +259,11 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
         </body>
         </html>
         """
-    
-    # Send the email
-    await send_email(user.email, subject, html_content)
-    
+
+    # Send the email using the synchronous function
+    # Note: This will block within the background task, not the main request handler
+    send_email_sync(user.email, subject, html_content)
+
     return code
 
 # Registration endpoint
@@ -246,7 +271,7 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
 async def register(
     user_data: UserCreate, 
     db: Session = Depends(get_db), 
-    background_tasks: BackgroundTasks = BackgroundTasks()
+    background_tasks: BackgroundTasks = Depends() # Ensure BackgroundTasks is injected
 ):
     # Check if email already exists
     if db.query(User).filter(User.email == user_data.email).first():
@@ -310,9 +335,9 @@ async def register(
                 country=user_data.country
             )
             db.add(profile)
-            db.flush()  # Ensure the profile is added before sending emails
+            # db.flush() # Flush is handled by commit later
             
-            # Set up email sending for doctor registration
+            # Set up email sending for doctor registration using BackgroundTasks
             try:
                 # Send email to admin about new doctor registration
                 admin_subject = "New Doctor Registration - TabibMeet"
@@ -348,7 +373,8 @@ async def register(
                 </body>
                 </html>
                 """
-                background_tasks.add_task(send_email, ADMIN_EMAIL, admin_subject, admin_html_content)
+                # Use add_task for background email sending
+                background_tasks.add_task(send_email_sync, ADMIN_EMAIL, admin_subject, admin_html_content)
                 print(f"Admin email task added for {ADMIN_EMAIL}")
                 
                 # Notify the doctor about pending verification
@@ -366,12 +392,14 @@ async def register(
                 </body>
                 </html>
                 """
-                background_tasks.add_task(send_email, user_data.email, doctor_subject, doctor_html_content)
+                # Use add_task for background email sending
+                background_tasks.add_task(send_email_sync, user_data.email, doctor_subject, doctor_html_content)
                 print(f"Doctor email task added for {user_data.email}")
                 
             except Exception as email_error:
-                print(f"Failed to set up registration emails: {str(email_error)}")
-                # Continue with registration even if email setup fails
+                # Log the error but don't block registration
+                print(f"Failed to add registration email tasks to background: {str(email_error)}")
+                # Consider more robust error handling/logging here
             
             success_message = "Doctor registration submitted for verification"
             
@@ -401,8 +429,9 @@ async def register(
             success_message = "Patient account created successfully"
         
         # Commit all changes after successfully creating both user and profile
+        # and adding email tasks to the background
         db.commit()
-        db.refresh(new_user)
+        db.refresh(new_user) # Refresh after commit
         
         # For doctor or patient accounts, automatically log in and return tokens
         if user_data.role == UserRole.DOCTOR or user_data.role == UserRole.PATIENT:
@@ -413,7 +442,7 @@ async def register(
             # Store refresh token in database
             new_user.refresh_token = refresh_token
             new_user.last_login = datetime.utcnow()
-            db.commit()
+            db.commit() # Commit again after updating token and last_login
             
             # Return success message with tokens
             return {
@@ -476,7 +505,7 @@ async def verify_doctor(
     verification_data: DoctorVerificationUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-    background_tasks: BackgroundTasks = BackgroundTasks()
+    background_tasks: BackgroundTasks = Depends() # Inject BackgroundTasks
 ):
     # Only admins can verify doctors
     if current_user.role != UserRole.ADMIN:
@@ -552,7 +581,9 @@ async def verify_doctor(
         </html>
         """
         
-        background_tasks.add_task(send_email, doctor_email, subject, html_content)
+        # Use add_task for background email sending
+        background_tasks.add_task(send_email_sync, doctor_email, subject, html_content)
+        print(f"Verification email task added for {doctor_email}")
         
         return {
             "message": f"Doctor verification status updated to {verification_status}",
@@ -571,7 +602,8 @@ async def verify_doctor(
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
-    request: Request = None
+    request: Request = None,
+    background_tasks: BackgroundTasks = Depends() # Inject BackgroundTasks
 ):
     # First authenticate with username/password
     user = authenticate_user(db, form_data.username, form_data.password)
@@ -617,8 +649,11 @@ async def login(
         
         # If no valid 2FA code, always generate a new one and require verification
         if not twofa_code or twofa_code != user.two_factor_secret:
-            # Generate and send a new 2FA code
-            await generate_and_send_2fa_code(user, db, purpose="login")
+            # Generate and send a new 2FA code in the background
+            # Need to commit the user changes before adding the task
+            db.commit() # Commit user state before background task
+            background_tasks.add_task(generate_and_send_2fa_code_sync, user, db, purpose="login")
+            print(f"2FA login code task added for {user.email}")
             
             # Return the 2FA challenge response (without tokens)
             return TwoFactorLoginResponse(
@@ -631,6 +666,7 @@ async def login(
         # If we reach here, the 2FA code was valid
         # Clear the used 2FA code
         user.two_factor_secret = None
+        # Commit will happen later before returning tokens
     
     # At this point, authentication is complete (password + 2FA if enabled)
     
@@ -643,7 +679,7 @@ async def login(
     
     # Store refresh token in database
     user.refresh_token = refresh_token
-    db.commit()
+    db.commit() # Commit all changes before returning
     
     # Return standard token response
     return Token(
@@ -1066,11 +1102,15 @@ async def logout(
 async def setup_two_factor(
     setup_data: TwoFactorSetup,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = Depends() # Inject BackgroundTasks
 ):
     if setup_data.enabled:
-        # Generate and send 2FA code using the helper function
-        await generate_and_send_2fa_code(current_user, db, purpose="setup")
+        # Generate and send 2FA code using the helper function in the background
+        # Commit user state changes if any before the task
+        db.commit() # Commit any potential changes before task
+        background_tasks.add_task(generate_and_send_2fa_code_sync, current_user, db, purpose="setup")
+        print(f"2FA setup code task added for {current_user.email}")
         return {"message": "A verification code was sent to your email. Please verify it to enable 2FA."}
     else:
         current_user.two_factor_enabled = False
@@ -1099,8 +1139,8 @@ async def verify_two_factor(
 @router.post("/password-reset/request")
 async def request_password_reset(
     reset_request: PasswordResetRequest,
-    background_tasks: BackgroundTasks,
-    request: Request,  # Add request parameter to access client IP
+    background_tasks: BackgroundTasks = Depends(), # Inject BackgroundTasks
+    request: Request = None,  # Add request parameter to access client IP
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(User.email == reset_request.email).first()
@@ -1116,7 +1156,7 @@ async def request_password_reset(
     user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
     # Store IP address for additional verification
     user.reset_request_ip = getattr(request, 'client', None) and getattr(request.client, 'host', None)
-    db.commit()
+    db.commit() # Commit user changes before adding task
     
     # Use backend URL for the reset link - this is our universal handler
     backend_url = request.url.scheme + "://" + request.url.netloc
@@ -1140,7 +1180,8 @@ async def request_password_reset(
     """
     
     # Send email as a background task
-    background_tasks.add_task(send_email, user.email, subject, html_content)
+    background_tasks.add_task(send_email_sync, user.email, subject, html_content)
+    print(f"Password reset email task added for {user.email}")
     
     return {"message": "If your email is registered, you will receive a password reset link"}
 
@@ -1152,7 +1193,7 @@ async def confirm_password_reset(
     confirm_password: str,
     request: Request = None,
     db: Session = Depends(get_db),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks = Depends(), # Inject BackgroundTasks
 ):
     if new_password != confirm_password:
         raise HTTPException(
@@ -1215,7 +1256,7 @@ async def confirm_password_reset(
     # Force logout from all devices by invalidating refresh tokens
     user.refresh_token = None
     
-    db.commit()
+    db.commit() # Commit password change before sending email
     
     # Send confirmation email
     subject = "Password Changed - TabibMeet"
@@ -1231,10 +1272,8 @@ async def confirm_password_reset(
     """
     
     # Use background tasks for email sending
-    if background_tasks:
-        background_tasks.add_task(send_email, user.email, subject, html_content)
-    else:
-        await send_email(user.email, subject, html_content)
+    background_tasks.add_task(send_email_sync, user.email, subject, html_content)
+    print(f"Password change confirmation email task added for {user.email}")
     
     return {"message": "Password reset successfully"}
 
@@ -1242,7 +1281,7 @@ async def confirm_password_reset(
 @router.post("/change-password")
 async def change_password(
     change_request: ChangePasswordRequest,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks = Depends(), # Inject BackgroundTasks
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -1290,7 +1329,7 @@ async def change_password(
     # Invalidate all existing sessions by clearing refresh token
     current_user.refresh_token = None
     
-    db.commit()
+    db.commit() # Commit password change before sending email
     
     # Send confirmation email
     subject = "Password Changed - TabibMeet"
@@ -1306,7 +1345,8 @@ async def change_password(
     """
     
     # Send email as a background task
-    background_tasks.add_task(send_email, current_user.email, subject, html_content)
+    background_tasks.add_task(send_email_sync, current_user.email, subject, html_content)
+    print(f"Password change confirmation email task added for {current_user.email}")
     
     return {"message": "Password changed successfully"}
 
@@ -1417,7 +1457,8 @@ class ResendOTPRequest(BaseModel):
 @router.post("/2fa/send-code")
 async def resend_otp_code(
     request_data: ResendOTPRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = Depends() # Inject BackgroundTasks
 ):
     """Resend a new OTP code to the user's email, invalidating any previous code"""
     
@@ -1429,18 +1470,21 @@ async def resend_otp_code(
             "message": "If your email is registered, a verification code has been sent.",
         }
     
-    # Generate and send a new 2FA code
+    # Generate and send a new 2FA code in the background
     try:
-        # The generate_and_send_2fa_code function already invalidates previous codes
-        # by overwriting the two_factor_secret field
-        await generate_and_send_2fa_code(user, db, purpose=request_data.purpose)
+        # The generate_and_send_2fa_code_sync function already invalidates previous codes
+        # by overwriting the two_factor_secret field before sending.
+        # Commit user state changes if any before the task
+        db.commit() # Commit any potential changes before task
+        background_tasks.add_task(generate_and_send_2fa_code_sync, user, db, purpose=request_data.purpose)
+        print(f"Resend 2FA code task added for {user.email}")
         
         return {
             "message": "A new verification code has been sent to your email.",
-            "email": user.email
+            "email": user.email # Return email for confirmation on frontend if needed
         }
     except Exception as e:
-        print(f"Error sending 2FA code: {str(e)}")
+        print(f"Error adding resend 2FA code task: {str(e)}")
         # Use a generic error message that doesn't confirm if email exists
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
