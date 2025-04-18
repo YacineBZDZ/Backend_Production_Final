@@ -229,6 +229,9 @@ async def send_verification_email(to_email: str, code: str) -> None:
         </html>
         """
         
+        # Use get_settings to ensure we use Render env vars
+        settings = get_settings()
+        
         # Send the email using our improved email utility with TabibMeet signature
         await send_email(
             to_email=to_email,
@@ -876,6 +879,9 @@ async def send_phone_verification(
     """
     
     try:
+        # Get settings to ensure we're using Render's env vars
+        settings = get_settings()
+        
         # Send email with our improved utility that includes the signature
         await send_email(
             to_email=current_user.email,

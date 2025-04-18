@@ -49,8 +49,11 @@ def setup_test_users():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create test users on startup
-    if os.getenv("ENV", "development") == "development":
+    # Get settings once to ensure consistent configuration
+    settings = get_settings()
+    
+    # Create test users on startup - read from settings to ensure Render env vars are used
+    if settings.ENV == "development":
         setup_test_users()
         logger.info("Test users credentials:")
         logger.info("Doctor: testdoctor1@tabibmeet.com / Testtest@1!")
@@ -81,8 +84,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# Configure CORS using settings to ensure Render env vars are used
+settings = get_settings()
+allowed_origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else ["*"]
 logger.info(f"Configured CORS with allowed origins: {allowed_origins}")
 
 app.add_middleware(
@@ -111,12 +115,13 @@ async def health_check():
 
 # Check if running directly or imported
 if __name__ == "__main__":
-    # Get port from environment variable for Render compatibility
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
+    # Use settings for port and host to ensure Render env vars are used
+    settings = get_settings()
+    port = settings.PORT
+    host = settings.HOST
     
-    # For local development, enable reload
-    reload_enabled = os.getenv("ENV", "development") == "development"
+    # For local development, enable reload based on environment setting
+    reload_enabled = settings.ENV == "development"
     
     logger.info(f"Starting server on {host}:{port} (reload={reload_enabled})")
     uvicorn.run("main:app", host=host, port=port, reload=reload_enabled)
