@@ -6,6 +6,7 @@ import logging
 import base64
 import traceback
 import sys
+import os
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -74,12 +75,18 @@ async def send_email(
     logger.info(f"  - Port: {email_port}")
     logger.info(f"  - From: {email_from}")
     logger.info(f"  - User: {email_user}")
+    logger.info(f"  - Password length: {len(email_password) if email_password else 0}")
     logger.info(f"  - Use TLS: {use_tls}")
     logger.info(f"  - Use SSL: {use_ssl}")
     logger.info(f"  - Sending to: {to_email}")
     logger.info(f"  - Subject: {subject}")
     
-    # Build the message - no custom signature needed as we're using PrivateEmail's
+    # Check if running on Render
+    is_render = os.environ.get('RENDER') == 'true'
+    if is_render:
+        logger.info("Running on Render - using special email handling")
+    
+    # Build the message
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
     message["From"] = email_from
@@ -103,9 +110,28 @@ async def send_email(
                 logger.info(f"Starting TLS for SMTP connection")
                 server.starttls(context=context)
         
-        # Login to the server
-        logger.info(f"Attempting login with user: {email_user}")
-        server.login(email_user, email_password)
+        # Add extended debugging
+        server.set_debuglevel(1)
+        
+        # In Render environment, we might need special handling
+        if is_render:
+            # Try direct AUTH PLAIN which sometimes works better in container environments
+            auth_string = f"\0{email_user}\0{email_password}"
+            auth_plain = base64.b64encode(auth_string.encode()).decode()
+            logger.info(f"Using AUTH PLAIN for Render environment")
+            
+            try:
+                server.docmd("AUTH", f"PLAIN {auth_plain}")
+                logger.info("AUTH PLAIN succeeded")
+            except Exception as auth_error:
+                logger.error(f"AUTH PLAIN failed, trying standard login: {str(auth_error)}")
+                # Fall back to standard login if AUTH PLAIN fails
+                server.login(email_user, email_password)
+        else:
+            # Standard login for non-Render environments
+            logger.info(f"Attempting login with user: {email_user}")
+            server.login(email_user, email_password)
+        
         logger.info(f"Login successful")
         
         # Send the email
@@ -134,28 +160,73 @@ async def send_email(
         except Exception as conn_err:
             logger.error(f"Basic connection failed: {str(conn_err)}")
         
+        # If this is Render, try to test the password format which can sometimes be the issue
+        if is_render:
+            logger.info("Testing alternative auth methods for Render environment...")
+            test_password_format(email_host, email_user, email_password)
+            
         return False
 
 def test_password_format(email_host, email_user, email_password):
     """Test different password formats to help diagnose auth issues with PrivateEmail"""
-    print("\n=== Testing Password Formats ===")
-    formats = [
-        ("Original", email_password),
-        ("No hyphens", email_password.replace('-', '')),
-        ("No special chars", ''.join(c for c in email_password if c.isalnum())),
-        ("URL encoded", email_password.replace('-', '%2D'))
-    ]
+    logger.info("\n=== Testing Password Formats ===")
     
-    for name, pwd in formats:
-        print(f"\nTesting {name}: {'*' * len(pwd)}")
-        print(f"Base64 encoded: {base64.b64encode(pwd.encode()).decode()}")
+    # Sometimes Render's environment can add unwanted whitespace or line breaks
+    trimmed_password = email_password.strip()
+    if trimmed_password != email_password:
+        logger.info("Password had whitespace that was trimmed")
+    
+    # Check for common issues with special characters in passwords on Render
+    if "'" in email_password or '"' in email_password:
+        logger.info("Password contains quotes which may cause issues in environment variables")
+    
+    if "@" in email_password:
+        logger.info("Password contains @ which may require URL encoding in some environments")
         
-        # Print auth string that would be used
-        auth_string = f"\0{email_user}\0{pwd}"
-        auth_plain = base64.b64encode(auth_string.encode()).decode()
-        print(f"AUTH PLAIN string: {auth_plain}")
+    if "&" in email_password:
+        logger.info("Password contains & which may require escaping in some environments")
+        
+    # Some platforms have issues with very long passwords
+    if len(email_password) > 50:
+        logger.info(f"Password is very long ({len(email_password)} chars) which may cause issues")
+    
+    # Try to authenticate with SMTP directly
+    try:
+        logger.info("Attempting direct SMTP connection for authentication testing")
+        context = ssl.create_default_context()
+        
+        # Try different auth methods
+        smtp = smtplib.SMTP(email_host, 587, timeout=10)
+        smtp.ehlo()
+        smtp.starttls(context=context)
+        smtp.ehlo()
+        
+        # Check what authentication methods are supported
+        logger.info(f"Server supports these auth methods: {smtp.esmtp_features.get('auth', 'Unknown')}")
+        
+        # Try login with trimmed password
+        try:
+            logger.info("Trying AUTH with trimmed password")
+            smtp.login(email_user, trimmed_password)
+            logger.info("LOGIN SUCCEEDED with trimmed password")
+        except Exception as e:
+            logger.error(f"Login with trimmed password failed: {e}")
+            
+            # Try AUTH PLAIN method
+            try:
+                logger.info("Trying AUTH PLAIN method directly")
+                auth_string = f"\0{email_user}\0{trimmed_password}"
+                auth_plain = base64.b64encode(auth_string.encode()).decode()
+                smtp.docmd("AUTH", f"PLAIN {auth_plain}")
+                logger.info("AUTH PLAIN SUCCEEDED")
+            except Exception as e:
+                logger.error(f"AUTH PLAIN failed: {e}")
+            
+        smtp.quit()
+    except Exception as e:
+        logger.error(f"Could not test auth methods: {e}")
 
-# Add a new function to test email settings
+# Add a new function to test email settings from environment directly
 def print_email_config():
     """Print all email configuration values to help with debugging"""
     settings = get_settings()
@@ -164,20 +235,40 @@ def print_email_config():
     email_host = settings.EMAIL_HOST
     email_port = settings.EMAIL_PORT 
     email_user = settings.EMAIL_USER
-    email_password = settings.EMAIL_PASSWORD[:3] + "***" if settings.EMAIL_PASSWORD else None
+    
+    # Print password securely (first 3 chars + length)
+    if settings.EMAIL_PASSWORD:
+        password_preview = settings.EMAIL_PASSWORD[:3] + '*' * (len(settings.EMAIL_PASSWORD) - 3)
+    else:
+        password_preview = "None"
+        
     email_from = settings.EMAIL_FROM
     use_tls = settings.EMAIL_USE_TLS
     use_ssl = settings.EMAIL_USE_SSL
     
-    print("\n=== Email Configuration ===")
-    print(f"Host: {email_host}")
-    print(f"Port: {email_port}")
-    print(f"User: {email_user}")
-    print(f"Password: {email_password}")
-    print(f"From: {email_from}")
-    print(f"Use TLS: {use_tls}")
-    print(f"Use SSL: {use_ssl}")
-    print("==========================\n")
+    # Check for Render environment
+    is_render = os.environ.get('RENDER') == 'true'
+    
+    logger.info("\n=== Email Configuration ===")
+    logger.info(f"Host: {email_host}")
+    logger.info(f"Port: {email_port}")
+    logger.info(f"User: {email_user}")
+    logger.info(f"Password: {password_preview} (len: {len(settings.EMAIL_PASSWORD) if settings.EMAIL_PASSWORD else 0})")
+    logger.info(f"From: {email_from}")
+    logger.info(f"Use TLS: {use_tls}")
+    logger.info(f"Use SSL: {use_ssl}")
+    logger.info(f"Running on Render: {is_render}")
+    
+    # Check if environment variables match settings
+    if os.environ.get('EMAIL_PASSWORD'):
+        env_password_len = len(os.environ.get('EMAIL_PASSWORD'))
+        settings_password_len = len(settings.EMAIL_PASSWORD) if settings.EMAIL_PASSWORD else 0
+        
+        if env_password_len != settings_password_len:
+            logger.warning(f"WARNING: Environment variable EMAIL_PASSWORD length ({env_password_len}) " +
+                         f"doesn't match settings EMAIL_PASSWORD length ({settings_password_len})")
+    
+    logger.info("==========================\n")
     
     return {
         "host": email_host,
@@ -185,5 +276,66 @@ def print_email_config():
         "user": email_user,
         "from": email_from,
         "use_tls": use_tls,
-        "use_ssl": use_ssl
+        "use_ssl": use_ssl,
+        "on_render": is_render
     }
+
+# Add a direct email test function
+def test_send_direct_email(to_email="test@example.com"):
+    """Test sending email directly with raw SMTP commands to diagnose issues"""
+    settings = get_settings()
+    
+    # Get email configuration
+    email_host = settings.EMAIL_HOST
+    email_port = settings.EMAIL_PORT
+    email_user = settings.EMAIL_USER
+    email_password = settings.EMAIL_PASSWORD
+    
+    logger.info(f"Testing direct email to {to_email}...")
+    
+    try:
+        # Create a simple test message
+        msg = MIMEMultipart()
+        msg['From'] = email_user
+        msg['To'] = to_email
+        msg['Subject'] = "TabibMeet Email Test"
+        
+        body = "This is a test email to verify SMTP settings."
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Connect to the server
+        context = ssl.create_default_context()
+        with smtplib.SMTP(email_host, email_port) as server:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            
+            # Try various authentication methods
+            methods = [
+                ("Standard login", lambda: server.login(email_user, email_password)),
+                ("Trimmed password", lambda: server.login(email_user, email_password.strip())),
+                ("AUTH PLAIN", lambda: server.docmd("AUTH", f"PLAIN {base64.b64encode(f'\\0{email_user}\\0{email_password}'.encode()).decode()}")),
+            ]
+            
+            success = False
+            for method_name, method_func in methods:
+                try:
+                    logger.info(f"Trying {method_name}...")
+                    method_func()
+                    logger.info(f"Authentication succeeded with {method_name}")
+                    success = True
+                    break
+                except Exception as e:
+                    logger.error(f"{method_name} failed: {str(e)}")
+            
+            if success:
+                server.send_message(msg)
+                logger.info("Test email sent successfully!")
+                return True
+            else:
+                logger.error("All authentication methods failed")
+                return False
+    
+    except Exception as e:
+        logger.error(f"Test email failed: {str(e)}")
+        return False

@@ -26,7 +26,7 @@ from models.authentication import (
 )
 
 # Import the email utility function - renamed to avoid conflicts
-from email_utils import send_email as send_email_util, print_email_config
+from email_utils import send_email as send_email_util, print_email_config, test_send_direct_email
 import user_agents
 import random
 
@@ -38,6 +38,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 print("\n=== Auth Module Email Configuration ===")
 email_config = print_email_config()
 print(f"Auth will use email config: {email_config}")
+
+# Check if we're running on Render and show special message
+if os.environ.get('RENDER') == 'true':
+    print("\n=== RUNNING ON RENDER - TESTING EMAIL DIRECTLY ===")
+    # Try to send a direct test email to diagnose issues
+    test_result = test_send_direct_email(to_email=settings.ADMIN_EMAIL)
+    print(f"Direct email test result: {'SUCCESS' if test_result else 'FAILED'}")
+    print("====================================================\n")
 
 # Function to send email - using the imported function with a different name to prevent recursion
 async def send_email_wrapper(to_email: str, subject: str, html_content: str, signature_enabled: bool = True):
