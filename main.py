@@ -86,7 +86,18 @@ app = FastAPI(
 
 # Configure CORS using settings to ensure Render env vars are used
 settings = get_settings()
-allowed_origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else ["*"]
+
+# Handle ALLOWED_ORIGINS correctly whether it's a string, list, or None
+if hasattr(settings, 'ALLOWED_ORIGINS'):
+    if isinstance(settings.ALLOWED_ORIGINS, str):
+        allowed_origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else ["*"]
+    elif isinstance(settings.ALLOWED_ORIGINS, list):
+        allowed_origins = settings.ALLOWED_ORIGINS
+    else:
+        allowed_origins = ["*"]
+else:
+    allowed_origins = ["*"]
+
 logger.info(f"Configured CORS with allowed origins: {allowed_origins}")
 
 app.add_middleware(
