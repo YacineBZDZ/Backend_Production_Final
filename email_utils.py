@@ -314,7 +314,8 @@ def test_send_direct_email(to_email="test@example.com"):
             methods = [
                 ("Standard login", lambda: server.login(email_user, email_password)),
                 ("Trimmed password", lambda: server.login(email_user, email_password.strip())),
-                ("AUTH PLAIN", lambda: server.docmd("AUTH", f"PLAIN {base64.b64encode(f'\\0{email_user}\\0{email_password}'.encode()).decode()}")),
+                # Fix the f-string with backslash issue by using string concatenation
+                ("AUTH PLAIN", lambda: server.docmd("AUTH", "PLAIN " + base64.b64encode(("\0" + email_user + "\0" + email_password).encode()).decode())),
             ]
             
             success = False

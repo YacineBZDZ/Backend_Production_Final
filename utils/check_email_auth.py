@@ -90,7 +90,8 @@ def check_email_authentication():
         },
         {
             "name": "AUTH PLAIN",
-            "function": lambda s: s.docmd("AUTH", f"PLAIN {base64.b64encode(f'\\0{email_user}\\0{email_password}'.encode()).decode()}"),
+            # Fix the f-string with backslash issue
+            "function": lambda s: s.docmd("AUTH", "PLAIN " + base64.b64encode(("\0" + email_user + "\0" + email_password).encode()).decode()),
             "description": "Raw AUTH PLAIN command with base64 encoding"
         },
         {
