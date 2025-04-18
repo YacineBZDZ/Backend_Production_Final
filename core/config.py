@@ -2,12 +2,10 @@ import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from functools import lru_cache
-from typing import List
+from typing import List, Dict
 
-# Load environment variables from .env file (only in development)
-# In production (Render), environment variables are set in the dashboard
-# This will have no effect when running on Render since .env file won't exist
-load_dotenv()
+# Load environment variables from .env file
+load_dotenv(override=True)
 
 class Settings(BaseSettings):
     # Application settings
@@ -28,51 +26,31 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
-    # Email settings - Required
-    EMAIL_HOST: str = os.environ.get("EMAIL_HOST")
-    EMAIL_PORT: int = int(os.environ.get("EMAIL_PORT"))
-    EMAIL_USER: str = os.environ.get("EMAIL_USER")
-    EMAIL_PASSWORD: str = os.environ.get("EMAIL_PASSWORD")
-    EMAIL_FROM: str = os.environ.get("EMAIL_FROM")
+    # Email settings - Required - Explicitly set default values for debugging
+    EMAIL_HOST: str = os.environ.get("EMAIL_HOST", "mail.privateemail.com")
+    EMAIL_PORT: int = int(os.environ.get("EMAIL_PORT", "587"))
+    EMAIL_USER: str = os.environ.get("EMAIL_USER", "contact@tabibmeet.com")
+    EMAIL_PASSWORD: str = os.environ.get("EMAIL_PASSWORD", "")
+    EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "contact@tabibmeet.com")
     EMAIL_USE_TLS: bool = os.environ.get("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
-    ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL")
+    EMAIL_USE_SSL: bool = os.environ.get("EMAIL_USE_SSL", "False").lower() in ("true", "1", "t")
+    ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL", "adminyacine@tabibmeet.com")
     
-    # Frontend URL - Required
-    FRONTEND_URL: str = os.environ.get("FRONTEND_URL")
+    # Email signature settings
+    EMAIL_SIGNATURE_ENABLED: bool = os.environ.get("EMAIL_SIGNATURE_ENABLED", "False").lower() in ("true", "1", "t")
+    USE_PROVIDER_SIGNATURE: bool = os.environ.get("USE_PROVIDER_SIGNATURE", "True").lower() in ("true", "1", "t")
     
     # CORS settings
     ALLOWED_ORIGINS: List[str] = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
     
-    # Validate required fields
-    @classmethod
-    def validate_settings(cls, settings):
-        required_fields = [
-            "DATABASE_URL", "SECRET_KEY", "JWT_SECRET_KEY", 
-            "EMAIL_HOST", "EMAIL_PORT", "EMAIL_USER", 
-            "EMAIL_PASSWORD", "EMAIL_FROM", "ADMIN_EMAIL",
-            "FRONTEND_URL"
-        ]
-        
-        missing = []
-        for field in required_fields:
-            if not getattr(settings, field, None):
-                missing.append(field)
-                
-        if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-        
-        return settings
-    
     class Config:
-        # These settings only apply when loading from .env file
-        # Render will use system environment variables directly
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+        env_file_encoding = 'utf-8'
+        env_nested_delimiter = '__'
 
 @lru_cache()
 def get_settings() -> Settings:
     """Return cached settings for performance."""
-    settings = Settings()
-    settings = Settings.validate_settings(settings)
-    return settings
+    return Settings()

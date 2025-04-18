@@ -18,6 +18,9 @@ from models.authentication import AuthHandler
 import secrets
 from datetime import datetime
 
+# Import the simplified email utility
+from email_utils import send_email
+
 router = APIRouter(tags=["Users"])
 public_router = APIRouter(tags=["Public Users"])
 
@@ -207,63 +210,39 @@ class HomeDisplaySettingsModel(BaseModel):
     max_doctors: int
 
 # --- Helper function for sending email ---
-def send_verification_email(to_email: str, code: str) -> None:
+async def send_verification_email(to_email: str, code: str) -> None:
     try:
-        settings = get_settings()
-        
-        # Get email settings from config
-        SMTP_HOST = settings.EMAIL_HOST
-        SMTP_PORT = settings.EMAIL_PORT
-        EMAIL_FROM = settings.EMAIL_USER
-        EMAIL_PASSWORD = settings.EMAIL_PASSWORD
-
-        if not all([SMTP_HOST, SMTP_PORT, EMAIL_FROM, EMAIL_PASSWORD]):
-            raise Exception("SMTP configuration is incomplete.")
-
-        msg = EmailMessage()
-        msg["Subject"] = "TabibMeet - Your Verification Code"
-        msg["From"] = EMAIL_FROM
-        msg["To"] = to_email
-        
         # Create HTML content with formatted OTP code
         html_content = f"""
         <html>
           <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #4a90e2;">TabibMeet Verification</h2>
-              <p>Thank you for using TabibMeet. Please use the verification code below to complete your request:</p>
+              <h2 style="color: #4a90e2;">Vérification TabibMeet</h2>
+              <p>Merci d'utiliser TabibMeet. Veuillez utiliser le code de vérification ci-dessous pour compléter votre demande :</p>
               <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
                 <h2 style="letter-spacing: 5px; font-size: 32px; margin: 0;">{code}</h2>
               </div>
-              <p>This code will expire in 10 minutes. If you didn't request this code, please ignore this email.</p>
-              <p>Best regards,<br>The TabibMeet Team</p>
+              <p>Ce code expirera dans 10 minutes. Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail.</p>
+              <p>Cordialement,<br>L'équipe TabibMeet</p>
             </div>
           </body>
         </html>
         """
         
-        # Set plain text content as fallback
-        plain_text = f"Your verification code is: {code}\nThis code will expire in 10 minutes."
-        
-        msg.set_content(plain_text)
-        msg.add_alternative(html_content, subtype="html")
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_FROM, EMAIL_PASSWORD)
-            server.send_message(msg)
-            
-    except ImportError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to import configuration settings."
+        # Send the email using our improved email utility with TabibMeet signature
+        await send_email(
+            to_email=to_email,
+            subject="TabibMeet - Votre Code de Vérification",
+            html_content=html_content,
+            signature_enabled=True
         )
+            
     except Exception as e:
         import logging
         logging.error(f"Email sending error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not send verification email: {str(e)}"
+            detail=f"Impossible d'envoyer l'e-mail de vérification : {str(e)}"
         )
 
 # --- Endpoint to get current user profile ---
@@ -790,8 +769,10 @@ async def delete_user(
     if current_user.id == user_id:
         if not delete_request or not delete_request.confirm_deletion:
             raise HTTPException(status_code=400, detail="You must confirm account deletion")
+        # Check password early and return immediately if incorrect
         if not AuthHandler.verify_password(delete_request.password, current_user.password):
             raise HTTPException(status_code=401, detail="Incorrect password")
+        # If we get here, the password was correct
         db.delete(current_user)
         db.commit()
         return {"message": "Your account has been permanently deleted"}
@@ -852,7 +833,7 @@ async def delete_user(
     
     return {"message": "User deleted successfully"}
 
-# Endpoint to send a phone verification code - updated to send via email
+# Endpoint to send a phone verification code via email
 @router.post("/verify-phone", status_code=200)
 async def send_phone_verification(
     payload: PhoneVerificationRequest,
@@ -865,7 +846,7 @@ async def send_phone_verification(
     if not new_phone or len(''.join(filter(str.isdigit, new_phone))) < 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid phone number format. Please provide a valid phone number."
+            detail="Format de numéro de téléphone invalide. Veuillez fournir un numéro de téléphone valide."
         )
     
     # Generate a 6-digit numeric verification code
@@ -876,58 +857,35 @@ async def send_phone_verification(
     current_user.phone_verification_code = verification_code
     db.commit()
     
-    # Instead of SMS, send the verification code via email
+    # Create HTML content with formatted OTP code
+    html_content = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #4a90e2;">Vérification de Téléphone TabibMeet</h2>
+          <p>Vous avez demandé à vérifier le numéro de téléphone : <strong>{new_phone}</strong></p>
+          <p>Veuillez utiliser le code de vérification ci-dessous pour confirmer ce numéro de téléphone :</p>
+          <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+            <h2 style="letter-spacing: 5px; font-size: 32px; margin: 0;">{verification_code}</h2>
+          </div>
+          <p>Ce code expirera dans 10 minutes. Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail.</p>
+          <p>Cordialement,<br>L'équipe TabibMeet</p>
+        </div>
+      </body>
+    </html>
+    """
+    
     try:
-        # Create email subject and content for phone verification
-        settings = get_settings()
+        # Send email with our improved utility that includes the signature
+        await send_email(
+            to_email=current_user.email,
+            subject="TabibMeet - Votre Code de Vérification de Téléphone",
+            html_content=html_content,
+            signature_enabled=True
+        )
         
-        # Get email settings from config
-        SMTP_HOST = settings.EMAIL_HOST
-        SMTP_PORT = settings.EMAIL_PORT
-        EMAIL_FROM = settings.EMAIL_USER
-        EMAIL_PASSWORD = settings.EMAIL_PASSWORD
-
-        if not all([SMTP_HOST, SMTP_PORT, EMAIL_FROM, EMAIL_PASSWORD]):
-            raise Exception("SMTP configuration is incomplete.")
-
-        msg = EmailMessage()
-        msg["Subject"] = "TabibMeet - Your Phone Verification Code"
-        msg["From"] = EMAIL_FROM
-        msg["To"] = current_user.email  # Send to user's registered email
-        
-        # Create HTML content with formatted OTP code
-        html_content = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #4a90e2;">TabibMeet Phone Verification</h2>
-              <p>You have requested to verify the phone number: <strong>{new_phone}</strong></p>
-              <p>Please use the verification code below to confirm this phone number:</p>
-              <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
-                <h2 style="letter-spacing: 5px; font-size: 32px; margin: 0;">{verification_code}</h2>
-              </div>
-              <p>This code will expire in 10 minutes. If you didn't request this code, please ignore this email.</p>
-              <p>Best regards,<br>The TabibMeet Team</p>
-            </div>
-          </body>
-        </html>
-        """
-        
-        # Set plain text content as fallback
-        plain_text = f"Your verification code for phone number {new_phone} is: {verification_code}\nThis code will expire in 10 minutes."
-        
-        msg.set_content(plain_text)
-        msg.add_alternative(html_content, subtype="html")
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_FROM, EMAIL_PASSWORD)
-            server.send_message(msg)
-        
-        # For development only - in production you would remove this return value
         return {
-            "message": f"Verification code sent to your email ({current_user.email}). Please check your inbox.",
-            "code": verification_code  # Remove in production
+            "message": f"Code de vérification envoyé à votre e-mail ({current_user.email}). Veuillez vérifier votre boîte de réception."
         }
             
     except Exception as e:
@@ -935,7 +893,7 @@ async def send_phone_verification(
         logging.error(f"Error sending phone verification code via email: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send verification code. Please try again later."
+            detail="Échec de l'envoi du code de vérification. Veuillez réessayer plus tard."
         )
 
 # Endpoint to confirm the phone verification code and update the phone number
@@ -982,8 +940,8 @@ async def send_email_verification(
     current_user.email_verification_code = verification_code
     db.commit()
     
-    # Send the code by email using our helper function.
-    send_verification_email(new_email, verification_code)
+    # Send the code by email using our helper function with signature.
+    await send_verification_email(new_email, verification_code)
     
     # In production do not return the code.
     return {"message": "Verification code sent to email."}

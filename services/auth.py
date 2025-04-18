@@ -14,6 +14,7 @@ from typing import Optional
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
+from core.config import get_settings
 from database.session import get_db
 from models.user import User, UserRole, AdminProfile, PatientProfile, DoctorProfile
 
@@ -23,7 +24,8 @@ from models.authentication import (
     get_current_active_user
 )
 
-from core.config import get_settings
+# Import the email utility function - renamed to avoid conflicts
+from email_utils import send_email as send_email_util
 import user_agents
 import random
 
@@ -31,40 +33,16 @@ router = APIRouter(tags=["Authentication"])
 settings = get_settings()
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-# Email configuration from settings
-EMAIL_HOST = settings.EMAIL_HOST
-EMAIL_PORT = settings.EMAIL_PORT
-EMAIL_USER = settings.EMAIL_USER
-EMAIL_PASSWORD = settings.EMAIL_PASSWORD
-EMAIL_FROM = settings.EMAIL_FROM
-FRONTEND_URL = settings.FRONTEND_URL
-
-# Add admin email from settings
-ADMIN_EMAIL = settings.ADMIN_EMAIL if hasattr(settings, 'ADMIN_EMAIL') else EMAIL_FROM
-
-# Function to send email
-async def send_email(to_email: str, subject: str, html_content: str):
-    """Send an email using SMTP."""
-    try:
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"] = EMAIL_FROM
-        message["To"] = to_email
-        
-        # Add HTML content
-        html_part = MIMEText(html_content, "html")
-        message.attach(html_part)
-        
-        # Connect to server and send
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_FROM, to_email, message.as_string())
-        
-        return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+# Function to send email - using the imported function with a different name to prevent recursion
+async def send_email_wrapper(to_email: str, subject: str, html_content: str, signature_enabled: bool = True):
+    """A wrapper around the email utility to send emails."""
+    # Call the imported utility function, not recursively calling this function
+    return await send_email_util(
+        to_email=to_email,
+        subject=subject,
+        html_content=html_content,
+        signature_enabled=signature_enabled
+    )
 
 # Pydantic models for request/response
 class Token(BaseModel):
@@ -170,7 +148,7 @@ class TwoFactorLoginResponse(BaseModel):
     user_id: int
     email: str
 
-# Helper function to generate and send 2FA code
+# Helper function to generate and send 2FA code with TabibMeet signature
 async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "login") -> str:
     """
     Generate a 6-digit 2FA code, save it to the user, and send it via email
@@ -192,52 +170,52 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
     
     # Determine the appropriate email subject and content
     if purpose == "login":
-        subject = "Your TabibMeet Login Verification Code"
+        subject = "Votre Code de Vérification pour la Connexion - TabibMeet"
         html_content = f"""
         <html>
         <body>
-            <h2>Login Verification Code</h2>
-            <p>Hello {user.first_name},</p>
-            <p>Your verification code to log in to TabibMeet is:</p>
+            <h2>Code de Vérification pour la Connexion</h2>
+            <p>Bonjour {user.first_name},</p>
+            <p>Votre code de vérification pour vous connecter à TabibMeet est :</p>
             <p style="font-size: 24px; font-weight: bold; text-align: center; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">{code}</p>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you did not request this code, please ignore this email or contact support if you have concerns about your account security.</p>
-            <p>Thank you,<br>TabibMeet Team</p>
+            <p>Ce code expirera dans 10 minutes.</p>
+            <p>Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail ou contacter le support si vous avez des inquiétudes concernant la sécurité de votre compte.</p>
+            <p>Merci,<br>L'équipe TabibMeet</p>
         </body>
         </html>
         """
     elif purpose == "setup":
-        subject = "Your TabibMeet 2FA Setup Code"
+        subject = "Votre Code de Configuration pour l'Authentification à Deux Facteurs - TabibMeet"
         html_content = f"""
         <html>
         <body>
-            <h2>Two-Factor Authentication Setup</h2>
-            <p>Hello {user.first_name},</p>
-            <p>Your verification code to set up two-factor authentication is:</p>
+            <h2>Configuration de l'Authentification à Deux Facteurs</h2>
+            <p>Bonjour {user.first_name},</p>
+            <p>Votre code de vérification pour configurer l'authentification à deux facteurs est :</p>
             <p style="font-size: 24px; font-weight: bold; text-align: center; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">{code}</p>
-            <p>Please enter this code in the TabibMeet app to complete your 2FA setup.</p>
-            <p>If you did not request this code, please ignore this email or contact support.</p>
-            <p>Thank you,<br>TabibMeet Team</p>
+            <p>Veuillez saisir ce code dans l'application TabibMeet pour terminer la configuration de votre authentification à deux facteurs.</p>
+            <p>Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail ou contacter le support.</p>
+            <p>Merci,<br>L'équipe TabibMeet</p>
         </body>
         </html>
         """
     else:
-        subject = "Your TabibMeet Verification Code"
+        subject = "Votre Code de Vérification - TabibMeet"
         html_content = f"""
         <html>
         <body>
-            <h2>Verification Code</h2>
-            <p>Hello {user.first_name},</p>
-            <p>Your verification code is:</p>
+            <h2>Code de Vérification</h2>
+            <p>Bonjour {user.first_name},</p>
+            <p>Votre code de vérification est :</p>
             <p style="font-size: 24px; font-weight: bold; text-align: center; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">{code}</p>
-            <p>If you did not request this code, please ignore this email.</p>
-            <p>Thank you,<br>TabibMeet Team</p>
+            <p>Si vous n'avez pas demandé ce code, veuillez ignorer cet e-mail.</p>
+            <p>Merci,<br>L'équipe TabibMeet</p>
         </body>
         </html>
         """
     
-    # Send the email
-    await send_email(user.email, subject, html_content)
+    # Send the email with our standard signature using the wrapper function
+    await send_email_wrapper(user.email, subject, html_content, signature_enabled=True)
     
     return code
 
@@ -315,58 +293,58 @@ async def register(
             # Set up email sending for doctor registration
             try:
                 # Send email to admin about new doctor registration
-                admin_subject = "New Doctor Registration - TabibMeet"
+                admin_subject = "Nouvel Enregistrement de Médecin - TabibMeet"
                 admin_html_content = f"""
                 <html>
                 <body>
-                    <h2>New Doctor Registration Requires Verification</h2>
-                    <p>A new doctor has registered on TabibMeet and requires your approval:</p>
+                    <h2>Un Nouvel Enregistrement de Médecin Nécessite une Vérification</h2>
+                    <p>Un nouveau médecin s'est inscrit sur TabibMeet et nécessite votre approbation :</p>
                     <table border="1" cellpadding="5" cellspacing="0">
                         <tr>
-                            <th>Name:</th>
+                            <th>Nom :</th>
                             <td>{user_data.first_name} {user_data.last_name}</td>
                         </tr>
                         <tr>
-                            <th>Email:</th>
+                            <th>Email :</th>
                             <td>{user_data.email}</td>
                         </tr>
                         <tr>
-                            <th>Phone:</th>
+                            <th>Téléphone :</th>
                             <td>{user_data.phone}</td>
                         </tr>
                         <tr>
-                            <th>Specialty:</th>
+                            <th>Spécialité :</th>
                             <td>{profile.specialty}</td>
                         </tr>
                         <tr>
-                            <th>License Number:</th>
+                            <th>Numéro de Licence :</th>
                             <td>{profile.license_number}</td>
                         </tr>
                     </table>
-                    <p>To verify this doctor, log into the admin dashboard and go to the Doctors section.</p>
-                    <p><a href="{FRONTEND_URL}/admin/doctors/verify/{new_user.id}">Click here to verify</a></p>
+                    <p>Pour vérifier ce médecin, connectez-vous au tableau de bord administrateur et accédez à la section Médecins.</p>
+                    <p>ID du Médecin : {new_user.id}</p>
                 </body>
                 </html>
                 """
-                background_tasks.add_task(send_email, ADMIN_EMAIL, admin_subject, admin_html_content)
-                print(f"Admin email task added for {ADMIN_EMAIL}")
+                background_tasks.add_task(send_email_wrapper, settings.ADMIN_EMAIL, admin_subject, admin_html_content)
+                print(f"Admin email task added for {settings.ADMIN_EMAIL}")
                 
                 # Notify the doctor about pending verification
-                doctor_subject = "Doctor Registration - Verification Required"
+                doctor_subject = "Inscription Médecin - Vérification Requise"
                 doctor_html_content = f"""
                 <html>
                 <body>
-                    <h2>Doctor Registration Submitted</h2>
-                    <p>Dear Dr. {user_data.first_name} {user_data.last_name},</p>
-                    <p>Thank you for registering with TabibMeet. Your registration has been received and is pending verification by our administrators.</p>
-                    <p>You can log in to your account, but you will have limited functionality until your credentials are verified. 
-                    An administrator will contact you if additional information is required.</p>
-                    <p>License Number: {profile.license_number}</p>
-                    <p>Best regards,<br>The TabibMeet Team</p>
+                    <h2>Inscription du Médecin Soumise</h2>
+                    <p>Cher Dr. {user_data.first_name} {user_data.last_name},</p>
+                    <p>Merci pour votre inscription à TabibMeet. Votre inscription a été reçue et est en attente de vérification par nos administrateurs.</p>
+                    <p>Vous pouvez vous connecter à votre compte, mais vous aurez des fonctionnalités limitées jusqu'à ce que vos informations soient vérifiées. 
+                    Un administrateur vous contactera si des informations supplémentaires sont nécessaires.</p>
+                    <p>Numéro de Licence : {profile.license_number}</p>
+                    <p>Cordialement,<br>L'équipe TabibMeet</p>
                 </body>
                 </html>
                 """
-                background_tasks.add_task(send_email, user_data.email, doctor_subject, doctor_html_content)
+                background_tasks.add_task(send_email_wrapper, user_data.email, doctor_subject, doctor_html_content)
                 print(f"Doctor email task added for {user_data.email}")
                 
             except Exception as email_error:
@@ -532,25 +510,25 @@ async def verify_doctor(
         verification_status = "approved" if verification_data.is_verified else "not approved"
         doctor_email = doctor_profile.user.email
         
-        subject = f"Doctor Verification Status: {verification_status.title()}"
+        subject = f"Statut de Vérification du Médecin : {verification_status.title()}"
         html_content = f"""
         <html>
         <body>
-            <h2>Doctor Verification {verification_status.title()}</h2>
-            <p>Dear Dr. {doctor_profile.user.first_name} {doctor_profile.user.last_name},</p>
-            <p>Your doctor verification status has been updated to: <strong>{verification_status}</strong>.</p>
+            <h2>Vérification du Médecin {verification_status.title()}</h2>
+            <p>Cher Dr. {doctor_profile.user.first_name} {doctor_profile.user.last_name},</p>
+            <p>Votre statut de vérification de médecin a été mis à jour : <strong>{verification_status}</strong>.</p>
             
-            {"<p>Congratulations! You can now use all doctor features in the system.</p>" if verification_data.is_verified else 
-             "<p>Unfortunately, your verification was not approved at this time. Please contact support for more information.</p>"}
+            {"<p>Félicitations ! Vous pouvez maintenant utiliser toutes les fonctionnalités de médecin dans le système.</p>" if verification_data.is_verified else 
+             "<p>Malheureusement, votre vérification n'a pas été approuvée pour le moment. Veuillez contacter le support pour plus d'informations.</p>"}
             
-            {f"<p><strong>Notes:</strong> {verification_data.verification_notes}</p>" if verification_data.verification_notes else ""}
+            {f"<p><strong>Notes :</strong> {verification_data.verification_notes}</p>" if verification_data.verification_notes else ""}
             
-            <p>Best regards,<br>The TabibMeet Team</p>
+            <p>Cordialement,<br>L'équipe TabibMeet</p>
         </body>
         </html>
         """
         
-        background_tasks.add_task(send_email, doctor_email, subject, html_content)
+        background_tasks.add_task(send_email_wrapper, doctor_email, subject, html_content)
         
         return {
             "message": f"Doctor verification status updated to {verification_status}",
@@ -1121,24 +1099,24 @@ async def request_password_reset(
     reset_link = f"{backend_url}/auth/reset-password?token={reset_token}"
     
     # Email content
-    subject = "Password Reset Request - TabibMeet"
+    subject = "Demande de Réinitialisation de Mot de Passe - TabibMeet"
     html_content = f"""
     <html>
     <body>
-        <h2>Password Reset Request</h2>
-        <p>Hello {user.first_name},</p>
-        <p>We received a request to reset your password. If you didn't make this request, you can ignore this email.</p>
-        <p>To reset your password, click the link below:</p>
-        <p><a href="{reset_link}">Reset Your Password</a></p>
-        <p>This link will expire in 1 hour.</p>
-        <p>For security reasons, this reset link can only be used once.</p>
-        <p>Thank you,<br>TabibMeet Team</p>
+        <h2>Demande de Réinitialisation de Mot de Passe</h2>
+        <p>Bonjour {user.first_name},</p>
+        <p>Nous avons reçu une demande de réinitialisation de votre mot de passe. Si vous n'avez pas fait cette demande, vous pouvez ignorer cet e-mail.</p>
+        <p>Pour réinitialiser votre mot de passe, cliquez sur le lien ci-dessous :</p>
+        <p><a href="{reset_link}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Réinitialiser Mon Mot de Passe</a></p>
+        <p>Ce lien expirera dans 1 heure.</p>
+        <p>Pour des raisons de sécurité, ce lien de réinitialisation ne peut être utilisé qu'une seule fois.</p>
+        <p>Merci,<br>L'équipe TabibMeet</p>
     </body>
     </html>
     """
     
-    # Send email as a background task
-    background_tasks.add_task(send_email, user.email, subject, html_content)
+    # Send email as a background task with signature
+    background_tasks.add_task(send_email_wrapper, user.email, subject, html_content, signature_enabled=True)
     
     return {"message": "If your email is registered, you will receive a password reset link"}
 
@@ -1216,23 +1194,23 @@ async def confirm_password_reset(
     db.commit()
     
     # Send confirmation email
-    subject = "Password Changed - TabibMeet"
+    subject = "Mot de Passe Modifié - TabibMeet"
     html_content = f"""
     <html>
     <body>
-        <h2>Password Changed Successfully</h2>
-        <p>Hello {user.first_name},</p>
-        <p>Your password has been successfully changed. If you did not request this change, please contact support immediately.</p>
-        <p>Thank you,<br>TabibMeet Team</p>
+        <h2>Mot de Passe Changé avec Succès</h2>
+        <p>Bonjour {user.first_name},</p>
+        <p>Votre mot de passe a été changé avec succès. Si vous n'avez pas demandé ce changement, veuillez contacter le support immédiatement.</p>
+        <p>Merci,<br>L'équipe TabibMeet</p>
     </body>
     </html>
     """
     
-    # Use background tasks for email sending
+    # Use background tasks for email sending with signature
     if background_tasks:
-        background_tasks.add_task(send_email, user.email, subject, html_content)
+        background_tasks.add_task(send_email_wrapper, user.email, subject, html_content, signature_enabled=True)
     else:
-        await send_email(user.email, subject, html_content)
+        await send_email_wrapper(user.email, subject, html_content, signature_enabled=True)
     
     return {"message": "Password reset successfully"}
 
@@ -1291,20 +1269,20 @@ async def change_password(
     db.commit()
     
     # Send confirmation email
-    subject = "Password Changed - TabibMeet"
+    subject = "Mot de Passe Modifié - TabibMeet"
     html_content = f"""
     <html>
     <body>
-        <h2>Password Changed Successfully</h2>
-        <p>Hello {current_user.first_name},</p>
-        <p>Your password has been successfully changed. If you did not request this change, please contact support immediately.</p>
-        <p>Thank you,<br>TabibMeet Team</p>
+        <h2>Mot de Passe Changé avec Succès</h2>
+        <p>Bonjour {current_user.first_name},</p>
+        <p>Votre mot de passe a été changé avec succès. Si vous n'avez pas demandé ce changement, veuillez contacter le support immédiatement.</p>
+        <p>Merci,<br>L'équipe TabibMeet</p>
     </body>
     </html>
     """
     
     # Send email as a background task
-    background_tasks.add_task(send_email, current_user.email, subject, html_content)
+    background_tasks.add_task(send_email_wrapper, current_user.email, subject, html_content)
     
     return {"message": "Password changed successfully"}
 
@@ -1337,7 +1315,7 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
     Smart redirect handler for password reset links.
     Detects device type and redirects accordingly:
     - Mobile apps: Use deep links
-    - Web browsers: Redirect to frontend
+    - Web browsers: Redirect to reset page
     """
     # Verify token validity first (optional but provides better UX)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -1346,9 +1324,13 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
         User.reset_token_expires > datetime.utcnow()
     ).first() is not None
     
+    # Get base URL from the current request
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
+    
     if not valid_token:
-        # For invalid tokens, always redirect to web frontend with error param
-        return RedirectResponse(url=f"{FRONTEND_URL}/reset-password?error=invalid")
+        # For invalid tokens, redirect to error page
+        error_page = f"{base_url}/auth/password-reset-error"
+        return RedirectResponse(url=error_page)
     
     device_type = detect_device_type(request)
     
@@ -1360,20 +1342,20 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
         # Android deep link
         redirect_url = f"tabibmeet://reset-password?token={token}"
     else:
-        # Web frontend URL
-        redirect_url = f"{FRONTEND_URL}/reset-password?token={token}"
+        # Web redirect to the reset password form endpoint
+        redirect_url = f"{base_url}/auth/password-reset-form?token={token}"
     
     # HTML with JavaScript that tries mobile app first, then falls back to web
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Redirecting to TabibMeet...</title>
+        <title>Password Reset - TabibMeet</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <script>
             // Function to redirect to web app after a timeout
             function redirectToWeb() {{
-                window.location.href = "{FRONTEND_URL}/reset-password?token={token}";
+                window.location.href = "{base_url}/auth/password-reset-form?token={token}";
             }}
             
             // Try opening the mobile app
@@ -1397,10 +1379,151 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
         </style>
     </head>
     <body>
-        <h2>Redirecting to TabibMeet</h2>
+        <h2>Password Reset - TabibMeet</h2>
         <div class="loader"></div>
-        <p>Please wait while we redirect you to the password reset page...</p>
-        <p>If you are not redirected automatically, <a href="{FRONTEND_URL}/reset-password?token={token}">click here</a>.</p>
+        <p>Please wait while we process your password reset request...</p>
+        <p>If you are not redirected automatically, <a href="{base_url}/auth/password-reset-form?token={token}">click here</a>.</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+# Add a simple password reset form endpoint
+@router.get("/password-reset-form", response_class=HTMLResponse)
+async def password_reset_form(token: str, db: Session = Depends(get_db)):
+    """Provide a simple HTML form for password reset"""
+    # Verify token validity
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    valid_token = db.query(User).filter(
+        User.reset_token == token_hash,
+        User.reset_token_expires > datetime.utcnow()
+    ).first() is not None
+    
+    if not valid_token:
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Invalid Token - TabibMeet</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <h2>Invalid or Expired Token</h2>
+            <p class="error">The password reset link is invalid or has expired.</p>
+            <p>Please request a new password reset link.</p>
+        </body>
+        </html>
+        """)
+    
+    # Return a simple HTML form for resetting password
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Réinitialiser le Mot de Passe - TabibMeet</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }}
+            .form-group {{ margin-bottom: 15px; }}
+            label {{ display: block; margin-bottom: 5px; }}
+            input[type="password"] {{ width: 100%; padding: 8px; box-sizing: border-box; }}
+            button {{ background: #4CAF50; color: white; border: none; padding: 10px 15px; cursor: pointer; }}
+            .error {{ color: red; display: none; }}
+            .success {{ color: green; display: none; }}
+        </style>
+    </head>
+    <body>
+        <h2>Réinitialisez Votre Mot de Passe</h2>
+        <div id="error-message" class="error"></div>
+        <div id="success-message" class="success"></div>
+        <form id="reset-form">
+            <div class="form-group">
+                <label for="password">Nouveau Mot de Passe</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label for="confirm-password">Confirmer le Mot de Passe</label>
+                <input type="password" id="confirm-password" name="confirm_password" required>
+            </div>
+            <button type="submit">Réinitialiser le Mot de Passe</button>
+        </form>
+        
+        <script>
+            document.getElementById('reset-form').addEventListener('submit', async function(e) {{
+                e.preventDefault();
+                
+                const password = document.getElementById('password').value;
+                const confirmPassword = document.getElementById('confirm-password').value;
+                const errorElement = document.getElementById('error-message');
+                const successElement = document.getElementById('success-message');
+                
+                errorElement.style.display = 'none';
+                successElement.style.display = 'none';
+                
+                if (password !== confirmPassword) {{
+                    errorElement.textContent = 'Les mots de passe ne correspondent pas';
+                    errorElement.style.display = 'block';
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/auth/password-reset/confirm', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{
+                            token: '{token}',
+                            new_password: password,
+                            confirm_password: confirmPassword
+                        }})
+                    }});
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {{
+                        successElement.textContent = result.message || 'Réinitialisation du mot de passe réussie !';
+                        successElement.style.display = 'block';
+                        document.getElementById('reset-form').style.display = 'none';
+                    }} else {{
+                        errorElement.textContent = result.detail || 'Échec de la réinitialisation du mot de passe';
+                        errorElement.style.display = 'block';
+                    }}
+                }} catch (error) {{
+                    errorElement.textContent = 'Une erreur s\'est produite. Veuillez réessayer.';
+                    errorElement.style.display = 'block';
+                    console.error(error);
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+# Add a password reset error page
+@router.get("/password-reset-error", response_class=HTMLResponse)
+async def password_reset_error():
+    """Show error page for invalid reset links"""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Reset Link Invalid - TabibMeet</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+            .error { color: red; margin: 20px 0; }
+            .btn { background: #4CAF50; color: white; border: none; padding: 10px 15px; cursor: pointer; text-decoration: none; }
+        </style>
+    </head>
+    <body>
+        <h2>Password Reset Failed</h2>
+        <p class="error">The password reset link is invalid or has expired.</p>
+        <p>Please request a new password reset link.</p>
+        <a href="/auth/request-password-reset" class="btn">Request New Reset Link</a>
     </body>
     </html>
     """
