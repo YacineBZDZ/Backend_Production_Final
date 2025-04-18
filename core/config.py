@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     # Email settings - Required - Explicitly set default values for debugging
     EMAIL_HOST: str = os.environ.get("EMAIL_HOST", "mail.privateemail.com")
     EMAIL_PORT: int = int(os.environ.get("EMAIL_PORT", "587"))
-    EMAIL_USER: str = os.environ.get("EMAIL_USER", "contact@tabibmeet.com")
+    EMAIL_USER: str = os.environ.get("EMAIL_USER", "no-reply@tabibmeet.com")
     EMAIL_PASSWORD: str = os.environ.get("EMAIL_PASSWORD", "")
-    EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "contact@tabibmeet.com")
+    EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "no-reply@tabibmeet.com")
     EMAIL_USE_TLS: bool = os.environ.get("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
     EMAIL_USE_SSL: bool = os.environ.get("EMAIL_USE_SSL", "False").lower() in ("true", "1", "t")
     ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL", "adminyacine@tabibmeet.com")
