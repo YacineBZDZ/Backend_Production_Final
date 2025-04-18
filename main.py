@@ -82,7 +82,9 @@ app = FastAPI(
 )
 
 # Configure CORS
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
+if isinstance(allowed_origins, str):
+    allowed_origins = allowed_origins.split(",")
 logger.info(f"Configured CORS with allowed origins: {allowed_origins}")
 
 app.add_middleware(
