@@ -1,5 +1,6 @@
 # backend/api/services.py
 from datetime import datetime, timedelta
+import logging
 import secrets
 import pyotp
 import hashlib
@@ -25,7 +26,7 @@ from models.authentication import (
 )
 
 # Import the email utility function - renamed to avoid conflicts
-from email_utils import send_email as send_email_util
+from email_utils import send_email as send_email_util, print_email_config
 import user_agents
 import random
 
@@ -33,16 +34,33 @@ router = APIRouter(tags=["Authentication"])
 settings = get_settings()
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
+# Print email configuration on module load for debugging purposes
+print("\n=== Auth Module Email Configuration ===")
+email_config = print_email_config()
+print(f"Auth will use email config: {email_config}")
+
 # Function to send email - using the imported function with a different name to prevent recursion
 async def send_email_wrapper(to_email: str, subject: str, html_content: str, signature_enabled: bool = True):
     """A wrapper around the email utility to send emails."""
+    # Log the email attempt for debugging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Auth module sending email to: {to_email}, subject: {subject}")
+    
     # Call the imported utility function, not recursively calling this function
-    return await send_email_util(
+    result = await send_email_util(
         to_email=to_email,
         subject=subject,
         html_content=html_content,
         signature_enabled=signature_enabled
     )
+    
+    # Log the result
+    if result:
+        logger.info(f"Email to {to_email} sent successfully from auth module")
+    else:
+        logger.error(f"Failed to send email to {to_email} from auth module")
+    
+    return result
 
 # Pydantic models for request/response
 class Token(BaseModel):
@@ -168,6 +186,10 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
     user.two_factor_secret = code
     db.commit()
     
+    # Log for debugging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Generated 2FA code for user {user.id} ({user.email}) for purpose: {purpose}")
+    
     # Determine the appropriate email subject and content
     if purpose == "login":
         subject = "Votre Code de Vérification pour la Connexion - TabibMeet"
@@ -214,8 +236,17 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
         </html>
         """
     
+    # Log the email attempt
+    logger.info(f"Sending 2FA email to {user.email} for purpose: {purpose}")
+    
     # Send the email with our standard signature using the wrapper function
-    await send_email_wrapper(user.email, subject, html_content, signature_enabled=True)
+    email_sent = await send_email_wrapper(user.email, subject, html_content, signature_enabled=True)
+    
+    # Log the result
+    if email_sent:
+        logger.info(f"2FA email sent successfully to {user.email}")
+    else:
+        logger.error(f"Failed to send 2FA email to {user.email}")
     
     return code
 
