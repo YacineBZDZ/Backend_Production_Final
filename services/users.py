@@ -297,6 +297,9 @@ def list_doctors_by_specialty(
     response_list = []
     for doc in doctors:
         user_info = doc.user  # The associated User instance
+        # Skip doctor profiles with no associated user
+        if user_info is None:
+            continue
         response_list.append({
             "doctor_id": doc.id,
             "specialty": doc.specialty,
