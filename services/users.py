@@ -28,7 +28,7 @@ public_router = APIRouter(tags=["Public Users"])
 
 class DoctorProfileResponse(BaseModel):
     doctor_id: int
-    email: str
+    #email: str
     phone: Optional[str] = None
     first_name: str
     last_name: str
@@ -310,7 +310,7 @@ def list_doctors_by_specialty(
             "postal_code": doc.postal_code,
             "country": doc.country,
             "is_verified": doc.is_verified,
-            "email": user_info.email,
+            #"email": user_info.email,
             "phone": user_info.phone,
             "first_name": user_info.first_name,
             "last_name": user_info.last_name,
