@@ -1,6 +1,6 @@
 # backend/api/users.py
 from fastapi import APIRouter, Body, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr
@@ -28,6 +28,7 @@ public_router = APIRouter(tags=["Public Users"])
 
 class DoctorProfileResponse(BaseModel):
     doctor_id: int
+    user_id: int  # Add user_id to the response model
     email: str
     phone: Optional[str] = None
     first_name: str
@@ -194,7 +195,7 @@ class DeleteAccountRequest(BaseModel):
     confirm_deletion: bool = False
 
 class FeaturedDoctorCreate(BaseModel):
-    doctor_id: int
+    user_id: int  # Now required
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     feature_enabled: bool = True
@@ -1192,166 +1193,96 @@ async def admin_update_admin_profile(
     db.refresh(admin_profile)
     return {"message": "Admin profile updated successfully"}
 
-@public_router.get("/featured-doctors")
+@public_router.get("/featured-doctors", response_model=List[DoctorProfileResponse])
 def get_featured_doctors(db: Session = Depends(get_db)):
-    featured_doctors = db.query(FeaturedDoctor).filter(FeaturedDoctor.feature_enabled == True).all()
-    result = []
-    
+    """Public endpoint to get active featured doctors"""
+    featured_doctors = db.query(FeaturedDoctor).filter(
+        FeaturedDoctor.feature_enabled == True
+    ).options(
+        joinedload(FeaturedDoctor.doctor).joinedload(DoctorProfile.user),
+        joinedload(FeaturedDoctor.user)
+    ).all()
+    response_list = []
     for fd in featured_doctors:
-        # Only include entries with valid doctor and user relationships
-        if fd.doctor and fd.doctor.user:
-            doctor = fd.doctor
-            user = doctor.user
-            
-            # Create formatted location
-            formatted_location = None
-            if doctor.city and doctor.state and doctor.country:
-                formatted_location = f"{doctor.city}, {doctor.state}, {doctor.country}"
-            elif doctor.address:
-                formatted_location = doctor.address
-                
-            result.append({
-                "id": fd.id,
-                "doctor_id": fd.doctor_id,
-                "start_date": fd.start_date,
-                "end_date": fd.end_date,
-                "feature_enabled": fd.feature_enabled,
-                "doctor": {
-                    "id": doctor.id,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "specialty": doctor.specialty,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "bio": doctor.bio,
-                    "education": doctor.education,
-                    "years_experience": doctor.years_experience,
-                    "address": doctor.address,
-                    "city": doctor.city,
-                    "state": doctor.state,
-                    "postal_code": doctor.postal_code,
-                    "country": doctor.country,
-                    "is_verified": doctor.is_verified,
-                    "formatted_location": formatted_location,
-                    "full_name": f"{user.first_name} {user.last_name}"
-                }
+        user = fd.user
+        if not user and fd.doctor and fd.doctor.user:
+            user = fd.doctor.user
+        if not user:
+            continue
+        doc = fd.doctor
+        if not doc:
+            continue
+        try:
+            response_list.append({
+                "doctor_id": doc.id,
+                "user_id": user.id,
+                "email": user.email,
+                "phone": user.phone,
+                "first_name": user.first_name,
+                "last_name": user.last_name, 
+                "specialty": doc.specialty,
+                "license_number": doc.license_number,
+                "bio": doc.bio,
+                "education": doc.education,
+                "years_experience": doc.years_experience,
+                "address": doc.address,
+                "city": doc.city,
+                "state": doc.state,
+                "postal_code": doc.postal_code,
+                "country": doc.country,
+                "is_verified": doc.is_verified
             })
-    
-    return result
+        except Exception:
+            continue
+    return response_list
 
-@router.get("/featured-doctors")
-def get_featured_doctors_protected(db: Session = Depends(get_db)):
-    """
-    Get comprehensive information about all featured doctors for admin view
-    and home screen display.
-    """
-    # Get all featured doctors, regardless of enabled status for admin view
-    featured_doctors = db.query(FeaturedDoctor).all()
-    result = []
-    
+@router.get("/admin-featured-doctors", response_model=List[DoctorProfileResponse])
+def get_featured_doctors_protected(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Admin endpoint to get all featured doctors (including disabled ones)"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can access this endpoint"
+        )
+    featured_doctors = db.query(FeaturedDoctor).options(
+        joinedload(FeaturedDoctor.doctor),
+        joinedload(FeaturedDoctor.user)
+    ).all()
+    response_list = []
     for fd in featured_doctors:
-        # Check if doctor and user relationships exist
-        if fd.doctor and fd.doctor.user:
-            doc = fd.doctor
-            user = doc.user
-            
-            # Include full location information and contact details
-            formatted_location = None
-            if doc.city and doc.state and doc.country:
-                formatted_location = f"{doc.city}, {doc.state}, {doc.country}"
-            elif doc.address:
-                formatted_location = doc.address
-                
-            result.append({
-                "id": fd.id,
-                "doctor_id": fd.doctor_id,
-                "start_date": fd.start_date,
-                "end_date": fd.end_date,
-                "feature_enabled": fd.feature_enabled,
-                "doctor": {
-                    "id": doc.id,
-                    "user_id": user.id,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "specialty": doc.specialty,
-                    "license_number": doc.license_number,
-                    "bio": doc.bio,
-                    "education": doc.education,
-                    "years_experience": doc.years_experience,
-                    "address": doc.address,
-                    "city": doc.city,
-                    "state": doc.state,
-                    "postal_code": doc.postal_code,
-                    "country": doc.country,
-                    "is_verified": doc.is_verified,
-                    "formatted_location": formatted_location,
-                    "contact": user.phone,
-                    "full_name": f"{user.first_name} {user.last_name}"
-                }
-            })
-        else:
-            # Include incomplete entries with a warning for admins
-            result.append({
-                "id": fd.id,
-                "doctor_id": fd.doctor_id if fd.doctor else None,
-                "start_date": fd.start_date,
-                "end_date": fd.end_date,
-                "feature_enabled": fd.feature_enabled,
-                "doctor": {
-                    "id": fd.doctor_id if fd.doctor else None,
-                    "warning": "Doctor profile or user data is missing"
-                }
-            })
-    
-    return result
-
-@router.get("/featured-doctors/{featured_doctor_id}")
-def get_featured_doctor_by_id(featured_doctor_id: int, db: Session = Depends(get_db)):
-    featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.id == featured_doctor_id).first()
-    if not featured_doctor:
-        raise HTTPException(status_code=404, detail="Featured doctor not found")
-    
-    # Get comprehensive doctor information
-    doctor_profile = featured_doctor.doctor
-    doctor_user = doctor_profile.user
-    
-    # Include formatted location
-    formatted_location = None
-    if doctor_profile.city and doctor_profile.state and doctor_profile.country:
-        formatted_location = f"{doctor_profile.city}, {doctor_profile.state}, {doctor_profile.country}"
-    elif doctor_profile.address:
-        formatted_location = doctor_profile.address
-    
-    return {
-        "id": featured_doctor.id,
-        "doctor_id": featured_doctor.doctor_id,
-        "start_date": featured_doctor.start_date,
-        "end_date": featured_doctor.end_date,
-        "feature_enabled": featured_doctor.feature_enabled,
-        "doctor": {
-            "id": doctor_profile.id,
-            "user_id": doctor_user.id,
-            "first_name": doctor_user.first_name,
-            "last_name": doctor_user.last_name,
-            "email": doctor_user.email,
-            "phone": doctor_user.phone,
-            "specialty": doctor_profile.specialty,
-            "license_number": doctor_profile.license_number,
-            "bio": doctor_profile.bio,
-            "education": doctor_profile.education,
-            "years_experience": doctor_profile.years_experience,
-            "address": doctor_profile.address,
-            "city": doctor_profile.city,
-            "state": doctor_profile.state,
-            "postal_code": doctor_profile.postal_code,
-            "country": doctor_profile.country,
-            "is_verified": doctor_profile.is_verified,
-            "formatted_location": formatted_location,
-            "full_name": f"{doctor_user.first_name} {doctor_user.last_name}"
-        }
-    }
+        user = fd.user
+        if not user:
+            if not fd.doctor:
+                continue
+            if not fd.doctor.user:
+                continue
+            user = fd.doctor.user
+        doc = fd.doctor
+        if not doc:
+            continue
+        response_list.append({
+            "doctor_id": doc.id,
+            "user_id": user.id,
+            "email": user.email,
+            "phone": user.phone,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "specialty": doc.specialty,
+            "license_number": doc.license_number,
+            "bio": doc.bio,
+            "education": doc.education,
+            "years_experience": doc.years_experience,
+            "address": doc.address,
+            "city": doc.city,
+            "state": doc.state,
+            "postal_code": doc.postal_code,
+            "country": doc.country,
+            "is_verified": doc.is_verified
+        })
+    return response_list
 
 @router.post("/featured-doctors")
 def create_featured_doctor(
@@ -1359,29 +1290,61 @@ def create_featured_doctor(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
+    """Create a new featured doctor using user_id"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Only admins can create featured doctors.")
+
+    # Get the user and doctor profile
+    user = db.query(User).filter(User.id == data.user_id, User.role == UserRole.DOCTOR).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found or not a doctor")
+    doctor = db.query(DoctorProfile).filter(DoctorProfile.user_id == user.id).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found for this user")
+
+    # Check if this user/doctor is already featured
+    existing = db.query(FeaturedDoctor).filter(
+        (FeaturedDoctor.user_id == user.id) | (FeaturedDoctor.doctor_id == doctor.id)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="This doctor is already featured")
+
+    # Create new featured doctor entry
     featured_doctor = FeaturedDoctor(
-        doctor_id=data.doctor_id,
+        doctor_id=doctor.id,
+        user_id=user.id,
         start_date=data.start_date,
         end_date=data.end_date,
         feature_enabled=data.feature_enabled
     )
+
     db.add(featured_doctor)
     db.commit()
     db.refresh(featured_doctor)
-    return {"message": "Featured doctor created.", "featured_doctor": featured_doctor}
 
-@router.put("/featured-doctors/{featured_doctor_id}")
+    return {
+        "message": "Featured doctor created successfully",
+        "featured_doctor": {
+            "id": featured_doctor.id,
+            "doctor_id": featured_doctor.doctor_id,
+            "user_id": featured_doctor.user_id,
+            "start_date": featured_doctor.start_date,
+            "end_date": featured_doctor.end_date,
+            "feature_enabled": featured_doctor.feature_enabled
+        }
+    }
+
+@router.put("/featured-doctors/{user_id}")
 def update_featured_doctor(
-    featured_doctor_id: int,
+    user_id: int,
     data: FeaturedDoctorUpdate,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
+    """Update a featured doctor using user_id"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Only admins can update featured doctors.")
-    featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.id == featured_doctor_id).first()
+    featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.user_id == user_id).first()
     if not featured_doctor:
         raise HTTPException(status_code=404, detail="Featured doctor not found.")
     if data.start_date is not None:
@@ -1392,32 +1355,36 @@ def update_featured_doctor(
         featured_doctor.feature_enabled = data.feature_enabled
     db.commit()
     db.refresh(featured_doctor)
-    return {"message": "Featured doctor updated.", "featured_doctor": featured_doctor}
+    return {"message": "Featured doctor updated.", "featured_doctor": {
+        "id": featured_doctor.id,
+        "doctor_id": featured_doctor.doctor_id,
+        "user_id": featured_doctor.user_id,
+        "start_date": featured_doctor.start_date,
+        "end_date": featured_doctor.end_date,
+        "feature_enabled": featured_doctor.feature_enabled
+    }}
 
-@router.delete("/featured-doctors/{featured_doctor_id}")
+@router.delete("/featured-doctors/{user_id}")
 def delete_featured_doctor(
-    featured_doctor_id: int,
+    user_id: int,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a featured doctor by ID (admin only)"""
+    """Delete a featured doctor by user_id (admin only)"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can delete featured doctors"
         )
-    
-    featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.id == featured_doctor_id).first()
+    featured_doctor = db.query(FeaturedDoctor).filter(FeaturedDoctor.user_id == user_id).first()
     if not featured_doctor:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Featured doctor not found"
         )
-    
     db.delete(featured_doctor)
     db.commit()
-    
-    return {"message": f"Featured doctor with ID {featured_doctor_id} has been deleted"}
+    return {"message": f"Featured doctor with user ID {user_id} has been deleted"}
 
 # Keep the admin version for modifying settings
 @router.get("/home-display-settings", response_model=HomeDisplaySettingsModel)

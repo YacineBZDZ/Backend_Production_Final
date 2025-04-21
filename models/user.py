@@ -96,6 +96,9 @@ class DoctorProfile(Base):
     user = relationship("User", back_populates="doctor_profile")
     availability = relationship("DoctorAvailability", back_populates="doctor")
     appointments = relationship("Appointment", back_populates="doctor")
+    
+    # Add a direct relationship to FeaturedDoctor
+    featured = relationship("FeaturedDoctor", back_populates="doctor", uselist=False)
 
 class PatientProfile(Base):
     __tablename__ = "patient_profiles"
@@ -152,12 +155,25 @@ class Appointment(Base):
 class FeaturedDoctor(Base):
     __tablename__ = "featured_doctors"
     id = Column(Integer, primary_key=True, index=True)
-    doctor_id = Column(Integer, ForeignKey("doctor_profiles.id"), unique=True)
+    doctor_id = Column(Integer, ForeignKey("doctor_profiles.id"), unique=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=True)  # Add direct user reference
     start_date = Column(DateTime, nullable=True)
     end_date = Column(DateTime, nullable=True)
     feature_enabled = Column(Boolean, default=False)
 
-    doctor = relationship("DoctorProfile")
+    # Improve the relationship with better back_populates
+    doctor = relationship("DoctorProfile", back_populates="featured", lazy="joined")
+    # Direct relationship to User
+    user = relationship("User", foreign_keys=[user_id], lazy="joined")
+    
+    # Helper property to access user if only doctor is available
+    @property
+    def get_user(self):
+        if self.user:
+            return self.user
+        elif self.doctor and self.doctor.user:
+            return self.doctor.user
+        return None
 
 class HomeDisplaySettings(Base):
     """Settings for the home page display"""
