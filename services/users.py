@@ -303,6 +303,7 @@ def list_doctors_by_specialty(
             continue
         response_list.append({
             "doctor_id": doc.id,
+            "user_id": doc.user_id,  # <-- Add this line
             "specialty": doc.specialty,
             "license_number": doc.license_number,
             "bio": doc.bio,
