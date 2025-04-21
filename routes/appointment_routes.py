@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Response
 from datetime import datetime, date, timedelta, time
 from pydantic import BaseModel
 from typing import List, Optional
@@ -172,7 +172,12 @@ def get_user_appointments(
         result = []
         for appointment in appointments:
             doctor_profile = appointment.doctor
+            if not doctor_profile:
+                continue  # Skip appointments with missing doctor profile
+                
             doctor_user = db.query(User).filter(User.id == doctor_profile.user_id).first()
+            if not doctor_user:
+                continue  # Skip appointments with missing doctor user
             
             appointment_dict = {
                 "id": appointment.id,
@@ -281,26 +286,27 @@ def add_appointment_by_fullname(   # changed to synchronous function
         return new_appt
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        error_message = f"Failed to create appointment by fullname: {e}"
+        print(error_message)  # Log the detailed error
+        raise HTTPException(status_code=400, detail=error_message)
 
 @router.patch("/appointments/{appointment_id}/status", response_model=AppointmentStatusOut)
-async def update_appointment_status_endpoint(
+def update_appointment_status_endpoint(
     appointment_id: int,
-    new_status: str = Query(...),
-    current_user: User = Depends(get_current_active_user)
+    new_status: str ,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
 ):
     # Ensure only doctors can update appointment status
     if current_user.role != UserRole.DOCTOR:
         raise HTTPException(status_code=403, detail="Only doctors can update appointment status")
-    session = SessionLocal()
+    
     try:
-        updated_appt = await update_appointment_status(session, appointment_id, new_status, current_user.doctor_profile.id)
+        # Call the synchronous function directly without await
+        updated_appt = update_appointment_status(db, appointment_id, new_status, current_user.doctor_profile.id)
         return {"status": updated_appt.status}
     except Exception as e:
-        session.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        session.close()
 
 @router.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_appointment_endpoint(

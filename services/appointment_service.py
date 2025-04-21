@@ -169,7 +169,8 @@ def create_appointment_by_patient_fullname(
     ).first()
     if not patient:
         raise Exception("Patient with given full name not found.")
-    patient_id = patient.user_id
+    # Use the PatientProfile.id (PK) for appointment.patient_id
+    patient_profile_id = patient.id
 
     # Filtering logic: check for existing appointment conflicts
     conflict = session.query(Appointment).filter(
@@ -209,7 +210,7 @@ def create_appointment_by_patient_fullname(
     
     new_appointment = Appointment(
         doctor_id=doctor_id,
-        patient_id=patient_id,
+        patient_id=patient_profile_id,   # <-- changed here
         start_time=start_time,
         end_time=end_time,
         appointment_date=appointment_date,
@@ -220,12 +221,13 @@ def create_appointment_by_patient_fullname(
     session.add(new_appointment)
     try:
         session.commit()
-    except IntegrityError:
+        session.refresh(new_appointment)                  # <— ensure id and fields are populated
+    except IntegrityError as e:
         session.rollback()
-        raise Exception("Failed to create appointment due to a database error.")
+        raise Exception("Failed to create appointment due to a database error: " + str(e))
     return new_appointment
 
-async def update_appointment_status(session: Session, appointment_id: int, new_status: str, doctor_id: int):
+def update_appointment_status(session: Session, appointment_id: int, new_status: str, doctor_id: int):
     # Retrieve the appointment ensuring the doctor is authorized to update it
     appointment = session.query(Appointment).filter(
         Appointment.id == appointment_id,
@@ -250,53 +252,60 @@ async def update_appointment_status(session: Session, appointment_id: int, new_s
         session.commit()
         session.refresh(appointment)
         
-        # Get doctor and patient details for notification
-        doctor = session.query(DoctorProfile).filter(DoctorProfile.id == doctor_id).options(
-            selectinload(DoctorProfile.user)
-        ).first()
+        # Notification logic disabled
+        # # Get doctor and patient details for notification
+        # doctor = session.query(DoctorProfile).filter(DoctorProfile.id == doctor_id).options(
+        #     selectinload(DoctorProfile.user)
+        # ).first()
+        #
+        # patient = session.query(PatientProfile).filter(PatientProfile.id == appointment.patient_id).options(
+        #     selectinload(PatientProfile.user)
+        # ).first()
+        #
+        # doctor_name = f"{doctor.user.first_name} {doctor.user.last_name}"
+        # patient_name = f"{patient.user.first_name} {patient.user.last_name}"
+        #
+        # # Create appointment data for notification
+        # appointment_data = {
+        #     "id": appointment.id,
+        #     "doctor_id": doctor_id,
+        #     "patient_id": appointment.patient_id,
+        #     "start_time": appointment.start_time,
+        #     "end_time": appointment.end_time,
+        #     "appointment_date": appointment.appointment_date,
+        #     "status": new_status,
+        #     "reason": appointment.reason,
+        #     "notes": appointment.notes
+        # }
+        #
+        # # Create notification payload
+        # notification = create_appointment_status_changed_notification(
+        #     appointment=appointment_data,
+        #     old_status=old_status,
+        #     new_status=new_status,
+        #     changed_by="doctor",
+        #     doctor_name=doctor_name,
+        #     patient_name=patient_name
+        # )
+        #
+        # # Send notifications to both doctor and patient
+        # affected_users = [str(doctor.user_id), str(patient.user_id)]
+        #
+        # # Schedule websocket notification (disabled)
+        # # try:
+        # #     loop = asyncio.get_event_loop()
+        # #     if loop.is_running():
+        # #         loop.create_task(manager.send_appointment_notification(
+        # #             notification, "status_change", affected_users
+        # #         ))
+        # #     else:
+        # #         asyncio.run_coroutine_threadsafe(
+        # #             manager.send_appointment_notification(notification, "status_change", affected_users),
+        # #             loop
+        # #         )
+        # # except Exception:
+        # #     pass
         
-        patient = session.query(PatientProfile).filter(PatientProfile.id == appointment.patient_id).options(
-            selectinload(PatientProfile.user)
-        ).first()
-        
-        doctor_name = f"{doctor.user.first_name} {doctor.user.last_name}"
-        patient_name = f"{patient.user.first_name} {patient.user.last_name}"
-        
-        # Create appointment data for notification
-        appointment_data = {
-            "id": appointment.id,
-            "doctor_id": doctor_id,
-            "patient_id": appointment.patient_id,
-            "start_time": appointment.start_time,
-            "end_time": appointment.end_time,
-            "appointment_date": appointment.appointment_date,
-            "status": new_status,
-            "reason": appointment.reason,
-            "notes": appointment.notes
-        }
-        
-        # Create notification payload
-        notification = create_appointment_status_changed_notification(
-            appointment=appointment_data,
-            old_status=old_status,
-            new_status=new_status,
-            changed_by="doctor",
-            doctor_name=doctor_name,
-            patient_name=patient_name
-        )
-        
-        # Send notifications to both doctor and patient
-        affected_users = [
-            str(doctor.user_id),
-            str(patient.user_id)
-        ]
-        
-           # Use await instead of creating a separate task
-        await manager.send_appointment_notification(
-            notification, 
-            "status_change",
-            affected_users
-        )
     except Exception as e:
         session.rollback()
         raise Exception("Failed to update appointment status: " + str(e))

@@ -263,7 +263,8 @@ async def generate_and_send_2fa_code(user: User, db: Session, purpose: str = "lo
 async def register(
     user_data: UserCreate, 
     db: Session = Depends(get_db), 
-    background_tasks: BackgroundTasks = BackgroundTasks()
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    created_by_admin: bool = False  # New parameter to indicate if created by admin
 ):
     # Check if email already exists
     if db.query(User).filter(User.email == user_data.email).first():
@@ -419,8 +420,8 @@ async def register(
         db.commit()
         db.refresh(new_user)
         
-        # For doctor or patient accounts, automatically log in and return tokens
-        if user_data.role == UserRole.DOCTOR or user_data.role == UserRole.PATIENT:
+        # For doctor or patient accounts, automatically log in ONLY if not created by admin
+        if (user_data.role == UserRole.DOCTOR or user_data.role == UserRole.PATIENT) and not created_by_admin:
             # Create tokens for automatic login
             access_token = AuthHandler.create_access_token({"sub": str(new_user.id), "role": new_user.role.value})
             refresh_token = AuthHandler.create_refresh_token({"sub": str(new_user.id)})
@@ -442,11 +443,12 @@ async def register(
                 "auto_login": True
             }
         else:
-            # For non-doctor/patient accounts (admin), return the standard response
+            # For admin accounts or users created by admin, return the standard response without tokens
             return {
                 "message": success_message,
                 "user_id": new_user.id,
-                "role": user_data.role.value
+                "role": user_data.role.value,
+                "created_by_admin": created_by_admin
             }
     except Exception as e:
         db.rollback()
