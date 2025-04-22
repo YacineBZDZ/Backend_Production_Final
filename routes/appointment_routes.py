@@ -24,6 +24,7 @@ class AppointmentOut(BaseModel):
     status: str
     reason: Optional[str] = None
     notes: Optional[str] = None
+    doctor: Optional["DoctorDetails"] = None  # Add doctor field
 
     class Config:
         orm_mode = True
@@ -245,7 +246,35 @@ def add_appointment(
             reason=appointment.reason,
             notes=appointment.notes
         )
-        return new_appt
+        # Fetch doctor details for response
+        doctor_profile = session.query(User).filter(User.id == appointment.doctor_id).first()
+        doctor_details = None
+        if doctor_profile and doctor_profile.doctor_profile:
+            dp = doctor_profile.doctor_profile
+            doctor_details = DoctorDetails(
+                id=dp.id,
+                first_name=doctor_profile.first_name,
+                last_name=doctor_profile.last_name,
+                specialty=dp.specialty,
+                phone=doctor_profile.phone,
+                address=dp.address,
+                city=dp.city,
+                state=dp.state,
+                postal_code=dp.postal_code,
+                country=dp.country
+            )
+        return AppointmentOut(
+            id=new_appt.id,
+            doctor_id=new_appt.doctor_id,
+            patient_id=new_appt.patient_id,
+            start_time=new_appt.start_time,
+            end_time=new_appt.end_time,
+            appointment_date=new_appt.appointment_date,
+            status=new_appt.status,
+            reason=new_appt.reason,
+            notes=new_appt.notes,
+            doctor=doctor_details
+        )
     except Exception as e:
         session.rollback()
         # Improve error message with more details
@@ -497,6 +526,23 @@ def get_past_appointments_endpoint(
     if current_user.role == UserRole.DOCTOR:
         result = []
         for appointment in appointments:
+            # ...existing code...
+            doctor_profile = db.query(User).filter(User.id == appointment.doctor_id).first()
+            doctor_details = None
+            if doctor_profile and doctor_profile.doctor_profile:
+                dp = doctor_profile.doctor_profile
+                doctor_details = DoctorDetails(
+                    id=dp.id,
+                    first_name=doctor_profile.first_name,
+                    last_name=doctor_profile.last_name,
+                    specialty=dp.specialty,
+                    phone=doctor_profile.phone,
+                    address=dp.address,
+                    city=dp.city,
+                    state=dp.state,
+                    postal_code=dp.postal_code,
+                    country=dp.country
+                )
             patient_profile = appointment.patient
             patient_user = db.query(User).filter(User.id == patient_profile.user_id).first()
             
@@ -510,6 +556,7 @@ def get_past_appointments_endpoint(
                 "status": appointment.status,
                 "reason": appointment.reason,
                 "notes": appointment.notes,
+                "doctor": doctor_details,
                 "patient": {
                     "id": patient_profile.id,
                     "first_name": patient_user.first_name,
@@ -519,7 +566,7 @@ def get_past_appointments_endpoint(
                     "phone": patient_user.phone
                 }
             }
-            result.append(appointment_dict)
+            result.append(AppointmentOut(**appointment_dict))
         return result
     
     # For patients, return appointments with doctor details
@@ -528,7 +575,20 @@ def get_past_appointments_endpoint(
         for appointment in appointments:
             doctor_profile = appointment.doctor
             doctor_user = db.query(User).filter(User.id == doctor_profile.user_id).first()
-            
+            if not doctor_user:
+                continue  # Skip appointments with missing doctor user
+            doctor_details = DoctorDetails(
+                id=doctor_profile.id,
+                first_name=doctor_user.first_name,
+                last_name=doctor_user.last_name,
+                specialty=doctor_profile.specialty,
+                phone=doctor_user.phone,
+                address=doctor_profile.address,
+                city=doctor_profile.city,
+                state=doctor_profile.state,
+                postal_code=doctor_profile.postal_code,
+                country=doctor_profile.country
+            )
             appointment_dict = {
                 "id": appointment.id,
                 "doctor_id": appointment.doctor_id,
@@ -539,20 +599,9 @@ def get_past_appointments_endpoint(
                 "status": appointment.status,
                 "reason": appointment.reason,
                 "notes": appointment.notes,
-                "doctor": {
-                    "id": doctor_profile.id,
-                    "first_name": doctor_user.first_name,
-                    "last_name": doctor_user.last_name,
-                    "specialty": doctor_profile.specialty,
-                    "phone": doctor_user.phone,
-                    "address": doctor_profile.address,
-                    "city": doctor_profile.city,
-                    "state": doctor_profile.state,
-                    "postal_code": doctor_profile.postal_code,
-                    "country": doctor_profile.country
-                }
+                "doctor": doctor_details
             }
-            result.append(appointment_dict)
+            result.append(AppointmentOut(**appointment_dict))
         return result
     
     # For admins, return basic appointments 
