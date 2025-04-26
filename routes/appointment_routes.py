@@ -5,7 +5,7 @@ from typing import List, Optional
 from database.base import SessionLocal
 from database.session import get_db  # updated to use get_db
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from services.appointment_service import (
     create_appointment, update_appointment_status, delete_appointment, 
     update_appointment_details, search_appointments_by_name, 
@@ -123,10 +123,22 @@ def get_user_appointments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Get the current date and time to filter out past appointments
+    today = date.today()
+    current_time = datetime.now().time()
+    
     # Return appointments based on the user's role
     if current_user.role == UserRole.DOCTOR:
+        # Exclude past appointments (before today or today with time already passed)
         appointments = db.query(Appointment).filter(
-            Appointment.doctor_id == current_user.doctor_profile.id
+            Appointment.doctor_id == current_user.doctor_profile.id,
+            or_(
+                Appointment.appointment_date > today,
+                and_(
+                    Appointment.appointment_date == today,
+                    Appointment.end_time >= current_time
+                )
+            )
         ).all()
         
         # For doctors, include patient details with each appointment
@@ -165,8 +177,16 @@ def get_user_appointments(
         return result
         
     elif current_user.role == UserRole.PATIENT:
+        # Exclude past appointments (before today or today with time already passed)
         appointments = db.query(Appointment).filter(
-            Appointment.patient_id == current_user.patient_profile.id
+            Appointment.patient_id == current_user.patient_profile.id,
+            or_(
+                Appointment.appointment_date > today,
+                and_(
+                    Appointment.appointment_date == today,
+                    Appointment.end_time >= current_time
+                )
+            )
         ).all()
         
         # For patients, include doctor details with each appointment
@@ -384,12 +404,24 @@ def get_appointments_by_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Get the current date and time to filter out past appointments
+    today = date.today()
+    current_time = datetime.now().time()
+    
     appointments = db.query(Appointment).filter(
         or_(
             Appointment.doctor_id == current_user.doctor_profile.id,
             Appointment.patient_id == current_user.id
         ),
-        Appointment.status == status
+        Appointment.status == status,
+        # Exclude past appointments
+        or_(
+            Appointment.appointment_date > today,
+            and_(
+                Appointment.appointment_date == today,
+                Appointment.end_time >= current_time
+            )
+        )
     ).all()
     
     # Enhance appointments with patient data
@@ -472,7 +504,21 @@ def get_appointments_by_date_endpoint(date: date,
                                       current_user: User = Depends(get_current_active_user)):
     if current_user.role != UserRole.DOCTOR:
         raise HTTPException(status_code=403, detail="Only doctors can view appointments by date.")
-    appointments = get_appointments_by_date(db, current_user.doctor_profile.id, date)
+        
+    # Get the current date and time to filter out past appointments if viewing today
+    today = date.today()
+    current_time = datetime.now().time()
+    
+    # If viewing today, filter out past appointments based on time
+    if date == today:
+        appointments = db.query(Appointment).filter(
+            Appointment.doctor_id == current_user.doctor_profile.id,
+            Appointment.appointment_date == date,
+            Appointment.end_time >= current_time
+        ).all()
+    else:
+        # For future or past dates, show all appointments for that date
+        appointments = get_appointments_by_date(db, current_user.doctor_profile.id, date)
     
     # Enhance appointments with patient data
     result = []
@@ -503,16 +549,18 @@ def get_appointments_by_date_endpoint(date: date,
     
     return result
 
-@router.get("/appointments/past", response_model=List[AppointmentOut])
+@router.get("/appointments/past", response_model=List[AppointmentWithDoctorOut])
 def get_past_appointments_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
     Get all past appointments for the current user.
-    Doctors will see their patients' past appointments with patient details.
-    Patients will see their own past appointments with doctor details.
-    Admins will see all past appointments.
+    Past appointments are those where:
+    1. The appointment date is earlier than today, OR
+    2. The appointment is today but the end_time has already passed
+    
+    All appointment statuses will be included in the results.
     """
     if current_user.role not in [UserRole.DOCTOR, UserRole.PATIENT, UserRole.ADMIN]:
         raise HTTPException(
@@ -521,62 +569,42 @@ def get_past_appointments_endpoint(
         )
     
     appointments = get_past_appointments(db, current_user)
+    print(f"Total appointments fetched: {len(appointments)}")
     
-    # For doctors, return appointments with patient details
-    if current_user.role == UserRole.DOCTOR:
-        result = []
-        for appointment in appointments:
-            # ...existing code...
-            doctor_profile = db.query(User).filter(User.id == appointment.doctor_id).first()
-            doctor_details = None
-            if doctor_profile and doctor_profile.doctor_profile:
-                dp = doctor_profile.doctor_profile
-                doctor_details = DoctorDetails(
-                    id=dp.id,
-                    first_name=doctor_profile.first_name,
-                    last_name=doctor_profile.last_name,
-                    specialty=dp.specialty,
-                    phone=doctor_profile.phone,
-                    address=dp.address,
-                    city=dp.city,
-                    state=dp.state,
-                    postal_code=dp.postal_code,
-                    country=dp.country
-                )
-            patient_profile = appointment.patient
-            patient_user = db.query(User).filter(User.id == patient_profile.user_id).first()
-            
-            appointment_dict = {
-                "id": appointment.id,
-                "doctor_id": appointment.doctor_id,
-                "patient_id": appointment.patient_id,
-                "start_time": appointment.start_time,
-                "end_time": appointment.end_time,
-                "appointment_date": appointment.appointment_date,
-                "status": appointment.status,
-                "reason": appointment.reason,
-                "notes": appointment.notes,
-                "doctor": doctor_details,
-                "patient": {
-                    "id": patient_profile.id,
-                    "first_name": patient_user.first_name,
-                    "last_name": patient_user.last_name,
-                    "gender": patient_profile.gender,
-                    "date_of_birth": patient_profile.date_of_birth,
-                    "phone": patient_user.phone
-                }
-            }
-            result.append(AppointmentOut(**appointment_dict))
-        return result
-    
-    # For patients, return appointments with doctor details
-    elif current_user.role == UserRole.PATIENT:
-        result = []
-        for appointment in appointments:
+    # Prepare result list with proper format for both doctor and patient users
+    result = []
+    for appointment in appointments:
+        try:
+            # Get doctor details using the relationship that's already loaded
             doctor_profile = appointment.doctor
-            doctor_user = db.query(User).filter(User.id == doctor_profile.user_id).first()
-            if not doctor_user:
-                continue  # Skip appointments with missing doctor user
+            
+            # Skip if there's no doctor profile
+            if not doctor_profile:
+                print(f"Skipping appointment ID={appointment.id}: No doctor profile")
+                continue
+            
+            # Explicitly load user if needed
+            if not hasattr(doctor_profile, 'user') or doctor_profile.user is None:
+                if doctor_profile.user_id is None:
+                    print(f"Skipping appointment ID={appointment.id}: Doctor has no user_id")
+                    continue
+                doctor_user = db.query(User).filter(User.id == doctor_profile.user_id).first()
+                if not doctor_user:
+                    print(f"Skipping appointment ID={appointment.id}: Could not find doctor user with ID={doctor_profile.user_id}")
+                    continue
+            else:
+                doctor_user = doctor_profile.user
+                if not doctor_user:
+                    print(f"Skipping appointment ID={appointment.id}: Doctor user is None")
+                    continue
+            
+            # Get patient details
+            patient_profile = appointment.patient
+            patient_user = patient_profile.user if patient_profile and hasattr(patient_profile, 'user') else None
+            if patient_profile and not patient_user and patient_profile.user_id:
+                patient_user = db.query(User).filter(User.id == patient_profile.user_id).first()
+            
+            # Construct doctor details
             doctor_details = DoctorDetails(
                 id=doctor_profile.id,
                 first_name=doctor_user.first_name,
@@ -589,6 +617,20 @@ def get_past_appointments_endpoint(
                 postal_code=doctor_profile.postal_code,
                 country=doctor_profile.country
             )
+            
+            # Construct patient details if available
+            patient_details = None
+            if patient_profile and patient_user:
+                patient_details = PatientDetails(
+                    id=patient_profile.id,
+                    first_name=patient_user.first_name,
+                    last_name=patient_user.last_name,
+                    gender=patient_profile.gender,
+                    date_of_birth=patient_profile.date_of_birth,
+                    phone=patient_user.phone
+                )
+            
+            # Create appointment dictionary and add to results
             appointment_dict = {
                 "id": appointment.id,
                 "doctor_id": appointment.doctor_id,
@@ -599,10 +641,18 @@ def get_past_appointments_endpoint(
                 "status": appointment.status,
                 "reason": appointment.reason,
                 "notes": appointment.notes,
-                "doctor": doctor_details
+                "doctor": doctor_details,
+                "patient": patient_details
             }
-            result.append(AppointmentOut(**appointment_dict))
-        return result
+            result.append(appointment_dict)
+            print(f"Added appointment ID={appointment.id} with doctor={doctor_user.first_name} {doctor_user.last_name}")
+        except Exception as e:
+            # Log the error but continue processing other appointments
+            print(f"Error processing appointment {appointment.id}: {str(e)}")
+            continue
     
-    # For admins, return basic appointments 
-    return appointments
+    print(f"Returning {len(result)} appointments")
+    for idx, appt in enumerate(result):
+        print(f"{idx+1}. Appt ID={appt['id']}, Date={appt['appointment_date']}, Doctor={appt['doctor'].first_name} {appt['doctor'].last_name}")
+    
+    return result

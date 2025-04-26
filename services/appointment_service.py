@@ -1,4 +1,5 @@
 from datetime import datetime, time, date
+from operator import and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, func
@@ -445,29 +446,57 @@ def get_appointments_by_date(session: Session, doctor_id: int, appointment_date:
 def get_past_appointments(session: Session, user: User):
     """
     Get past appointments for the current user (doctor, patient, or admin).
-    Past appointments are those with an appointment_date earlier than today.
+    Past appointments are those where:
+    - The appointment date is earlier than today, OR
+    - The appointment is today but the end_time has already passed
     """
-    from datetime import date
+    from datetime import date, datetime
+    from sqlalchemy.orm import joinedload
+    
     today = date.today()
-    
+    now_time = datetime.now().time()
+
+    base_query = session.query(Appointment).options(
+        joinedload(Appointment.doctor).joinedload(DoctorProfile.user),
+        joinedload(Appointment.patient).joinedload(PatientProfile.user)
+    )
+
     if user.role == UserRole.DOCTOR:
-        return session.query(Appointment).filter(
+        return base_query.filter(
             Appointment.doctor_id == user.doctor_profile.id,
-            Appointment.appointment_date < today
+            or_(
+                Appointment.appointment_date < today,
+                and_(
+                    Appointment.appointment_date == today,
+                    Appointment.end_time < now_time
+                )
+            )
         ).order_by(Appointment.appointment_date.desc()).all()
-    
+
     elif user.role == UserRole.PATIENT:
-        return session.query(Appointment).filter(
+        return base_query.filter(
             Appointment.patient_id == user.patient_profile.id,
-            Appointment.appointment_date < today
+            or_(
+                Appointment.appointment_date < today,
+                and_(
+                    Appointment.appointment_date == today,
+                    Appointment.end_time < now_time
+                )
+            )
         ).order_by(Appointment.appointment_date.desc()).all()
-    
+
     elif user.role == UserRole.ADMIN:
         # Admins can see all past appointments
-        return session.query(Appointment).filter(
-            Appointment.appointment_date < today
+        return base_query.filter(
+            or_(
+                Appointment.appointment_date < today,
+                and_(
+                    Appointment.appointment_date == today,
+                    Appointment.end_time < now_time
+                )
+            )
         ).order_by(Appointment.appointment_date.desc()).all()
-    
+
     # For any other roles (should not happen with the endpoint check)
     return []
 # somme modifications
