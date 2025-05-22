@@ -30,29 +30,30 @@ from email_utils import send_email as send_email_util, print_email_config, test_
 import user_agents
 import random
 
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
+
+# Define the templates directory
+templates_dir = Path(__file__).parent.parent / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
+
 router = APIRouter(tags=["Authentication"])
 settings = get_settings()
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-# Print email configuration on module load for debugging purposes
-print("\n=== Auth Module Email Configuration ===")
+# Initialize email configuration silently without prints
 email_config = print_email_config()
-print(f"Auth will use email config: {email_config}")
 
-# Check if we're running on Render and show special message
+# Check if we're running on Render and run test - without printing debug information
 if os.environ.get('RENDER') == 'true':
-    print("\n=== RUNNING ON RENDER - TESTING EMAIL DIRECTLY ===")
-    # Try to send a direct test email to diagnose issues
     test_result = test_send_direct_email(to_email=settings.ADMIN_EMAIL)
-    print(f"Direct email test result: {'SUCCESS' if test_result else 'FAILED'}")
-    print("====================================================\n")
 
 # Function to send email - using the imported function with a different name to prevent recursion
 async def send_email_wrapper(to_email: str, subject: str, html_content: str, signature_enabled: bool = True):
     """A wrapper around the email utility to send emails."""
     # Log the email attempt for debugging
     logger = logging.getLogger(__name__)
-    logger.info(f"Auth module sending email to: {to_email}, subject: {subject}")
+    #logger.info(f"Auth module sending email to: {to_email}, subject: {subject}")
     
     # Call the imported utility function, not recursively calling this function
     result = await send_email_util(
@@ -63,12 +64,12 @@ async def send_email_wrapper(to_email: str, subject: str, html_content: str, sig
     )
     
     # Log the result
-    if result:
+    """  if result:
         logger.info(f"Email to {to_email} sent successfully from auth module")
     else:
         logger.error(f"Failed to send email to {to_email} from auth module")
     
-    return result
+    return result"""
 
 # Pydantic models for request/response
 class Token(BaseModel):
@@ -90,6 +91,10 @@ class UserCreate(BaseModel):
     last_name: str
     phone: str
     role: UserRole
+    
+    # Privacy policy acceptance
+    privacy_policy_accepted: bool = False
+    privacy_policy_version: Optional[str] = None
     
     # Optional fields for patient profile
     date_of_birth: Optional[str] = None
@@ -280,6 +285,13 @@ async def register(
             detail="Phone number already registered"
         )
     
+    # Check if privacy policy is accepted
+    """if not user_data.privacy_policy_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Privacy policy must be accepted"
+        )
+    """
     # Generate salt and hash password
     salt = AuthHandler.generate_salt()
     hashed_password = AuthHandler.get_password_hash(user_data.password)
@@ -293,7 +305,8 @@ async def register(
             first_name=user_data.first_name,
             last_name=user_data.last_name,
             phone=user_data.phone,
-            role=user_data.role
+            role=user_data.role,
+            privacy_policy_version=user_data.privacy_policy_version
         )
         
         db.add(new_user)
@@ -367,7 +380,6 @@ async def register(
                 </html>
                 """
                 background_tasks.add_task(send_email_wrapper, settings.ADMIN_EMAIL, admin_subject, admin_html_content)
-                print(f"Admin email task added for {settings.ADMIN_EMAIL}")
                 
                 # Notify the doctor about pending verification
                 doctor_subject = "Inscription Médecin - Vérification Requise"
@@ -385,11 +397,10 @@ async def register(
                 </html>
                 """
                 background_tasks.add_task(send_email_wrapper, user_data.email, doctor_subject, doctor_html_content)
-                print(f"Doctor email task added for {user_data.email}")
                 
             except Exception as email_error:
-                print(f"Failed to set up registration emails: {str(email_error)}")
                 # Continue with registration even if email setup fails
+                pass
             
             success_message = "Doctor registration submitted for verification"
             
@@ -454,7 +465,6 @@ async def register(
         db.rollback()
         # Log the full error and handle specific database errors
         error_message = str(e)
-        print(f"Registration error: {error_message}")
         
         if "duplicate key" in error_message.lower():
             if "license_number" in error_message.lower():
@@ -496,7 +506,7 @@ async def verify_doctor(
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     # Only admins can verify doctors
-    if current_user.role != UserRole.ADMIN:
+    if (current_user.role != UserRole.ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can verify doctors"
@@ -811,7 +821,6 @@ async def logout(
                     return {"message": "Successfully logged out"}
         except Exception as e:
             # If token validation fails, it's already invalid
-            print(f"Error during logout: {str(e)}")
             pass
     
     # Return success even if token wasn't found or was invalid
@@ -841,7 +850,7 @@ async def validate_token(
     
     # Check Authorization header first (standard method)
     auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
+    if (auth_header and auth_header.startswith("Bearer ")):
         token = auth_header.split(" ")[1]
     
     # If no token in header, check request body
@@ -913,7 +922,6 @@ async def validate_token(
         raise
     except Exception as e:
         # Log the actual error for debugging
-        print(f"Token validation error: {str(e)}")
         # Any other exception means the token is invalid
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1009,7 +1017,6 @@ async def silent_refresh(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Silent refresh error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token or session expired",
@@ -1139,6 +1146,10 @@ async def request_password_reset(
     backend_url = request.url.scheme + "://" + request.url.netloc
     reset_link = f"{backend_url}/auth/reset-password?token={reset_token}"
     
+    # Log the reset token for debugging purposes
+    logger = logging.getLogger(__name__)
+    #logger.info(f"Password reset token for user {user.id}: {reset_token}")
+    
     # Email content
     subject = "Demande de Réinitialisation de Mot de Passe - TabibMeet"
     html_content = f"""
@@ -1150,6 +1161,8 @@ async def request_password_reset(
         <p>Pour réinitialiser votre mot de passe, cliquez sur le lien ci-dessous :</p>
         <p><a href="{reset_link}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Réinitialiser Mon Mot de Passe</a></p>
         <p>Ce lien expirera dans 1 heure.</p>
+        <p>Si le bouton ci-dessus ne fonctionne pas, veuillez copier et coller l'URL suivante dans votre navigateur :</p>
+        <p style="word-break: break-all; background-color: #f5f5f5; padding: 10px; border-radius: 5px;">{reset_link}</p>
         <p>Pour des raisons de sécurité, ce lien de réinitialisation ne peut être utilisé qu'une seule fois.</p>
         <p>Merci,<br>L'équipe TabibMeet</p>
     </body>
@@ -1161,99 +1174,159 @@ async def request_password_reset(
     
     return {"message": "If your email is registered, you will receive a password reset link"}
 
-# Password reset confirmation
+from pydantic import BaseModel
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    new_password: str
+    confirm_password: str
+
 @router.post("/password-reset/confirm")
 async def confirm_password_reset(
-    token: str,
-    new_password: str,
-    confirm_password: str,
-    request: Request = None,
+    request: PasswordResetConfirmRequest,
+    current_request: Request = None,
     db: Session = Depends(get_db),
     background_tasks: BackgroundTasks = None,
 ):
-    if new_password != confirm_password:
+    # Rate limiting for password reset (IP-based)
+    client_ip = getattr(current_request, 'client', None) and getattr(current_request.client, 'host', None)
+    if client_ip:
+        # Simple rate limit check - could be moved to middleware
+        rate_limit_key = f"pwd_reset_{client_ip}"
+        current_time = datetime.utcnow().timestamp()
+        
+        # Check session for rate limiting data
+        rate_limit_data = current_request.session.get(rate_limit_key, [])
+        
+        # Clean up old attempts (older than 10 minutes)
+        rate_limit_data = [t for t in rate_limit_data if current_time - t < 600]
+        
+        # Check if too many attempts
+        if len(rate_limit_data) >= 5:  # Max 5 attempts per 10 minutes
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset attempts. Please try again later."
+            )
+        
+        # Record this attempt
+        rate_limit_data.append(current_time)
+        current_request.session[rate_limit_key] = rate_limit_data
+    
+    # Validate CSRF token if provided
+    csrf_token = getattr(request, 'csrf_token', None)
+    if current_request and csrf_token:
+        # Get stored CSRF tokens
+        stored_tokens = current_request.session.get("csrf_tokens", {})
+        
+        # Check if token exists and is valid
+        token_data = stored_tokens.get(csrf_token)
+        if not token_data:
+            # CSRF token is invalid
+            logging.warning(f"Invalid CSRF token used in password reset by IP: {client_ip}")
+            # We don't reveal that CSRF validation failed specifically
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired session. Please try again."
+            )
+        
+        # Check if token is expired
+        if token_data.get("expires", 0) < datetime.utcnow().timestamp():
+            # CSRF token has expired
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Session expired. Please refresh the page and try again."
+            )
+        
+        # Remove the used token (one-time use)
+        del stored_tokens[csrf_token]
+        current_request.session["csrf_tokens"] = stored_tokens
+    
+    # Check if passwords match
+    if request.new_password != request.confirm_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Passwords do not match"
         )
-    
+
     # Validate password strength with the same rules as registration
     try:
-        if len(new_password) < 8:
+        if len(request.new_password) < 8:
             raise ValueError('Password must be at least 8 characters')
-        if not re.search(r'[A-Z]', new_password):
+        if not re.search(r'[A-Z]', request.new_password):
             raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', new_password):
+        if not re.search(r'[a-z]', request.new_password):
             raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', new_password):
+        if not re.search(r'[0-9]', request.new_password):
             raise ValueError('Password must contain at least one number')
-        if not re.search(r'[^A-Za-z0-9]', new_password):
+        if not re.search(r'[^A-Za-z0-9]', request.new_password):
             raise ValueError('Password must contain at least one special character')
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
-    
+
     # Hash the token to compare with stored hash
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    
+    token_hash = hashlib.sha256(request.token.encode()).hexdigest()
+
     user = db.query(User).filter(
         User.reset_token == token_hash,
         User.reset_token_expires > datetime.utcnow()
     ).first()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired reset token"
         )
-    
-    # Optional: Check if reset is from same IP (add tolerance for mobile networks/VPNs)
-    current_ip = getattr(request, 'client', None) and getattr(request.client, 'host', None)
-    if user.reset_request_ip and current_ip and user.reset_request_ip != current_ip:
-        # Log suspicious activity but still allow reset
-        print(f"Warning: Password reset for user {user.id} requested from IP {user.reset_request_ip} but reset from {current_ip}")
-    
+
+    # Check if new password is different from current password
+    if AuthHandler.verify_password(request.new_password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password"
+        )
+
     # Generate new salt and hash the new password
     salt = AuthHandler.generate_salt()
-    hashed_password = AuthHandler.get_password_hash(new_password)
-    
+    hashed_password = AuthHandler.get_password_hash(request.new_password)
+
     # Update user's password and clear reset token
     user.password = hashed_password
     user.salt = salt
     user.reset_token = None
     user.reset_token_expires = None
-    user.reset_request_ip = None
-    
-    # Log the successful password change
     user.password_changed_at = datetime.utcnow()
     
-    # Force logout from all devices by invalidating refresh tokens
+    # Invalidate all existing sessions by clearing refresh token for security
     user.refresh_token = None
+
+    # Log the successful password change
+    logging.info(f"Password successfully reset for user: {user.id} from IP: {client_ip}")
     
     db.commit()
-    
-    # Send confirmation email
+
+    # Send confirmation email with security notification
     subject = "Mot de Passe Modifié - TabibMeet"
     html_content = f"""
     <html>
     <body>
         <h2>Mot de Passe Changé avec Succès</h2>
         <p>Bonjour {user.first_name},</p>
-        <p>Votre mot de passe a été changé avec succès. Si vous n'avez pas demandé ce changement, veuillez contacter le support immédiatement.</p>
+        <p>Votre mot de passe a été changé avec succès.</p>
+        <p><strong>Information de sécurité:</strong> Ce changement a été effectué le {datetime.utcnow().strftime('%d/%m/%Y à %H:%M UTC')}.</p>
+        <p>Si vous n'avez pas demandé ce changement, veuillez contacter le support immédiatement à {settings.SUPPORT_EMAIL}.</p>
         <p>Merci,<br>L'équipe TabibMeet</p>
     </body>
     </html>
     """
-    
-    # Use background tasks for email sending with signature
+
     if background_tasks:
         background_tasks.add_task(send_email_wrapper, user.email, subject, html_content, signature_enabled=True)
     else:
         await send_email_wrapper(user.email, subject, html_content, signature_enabled=True)
-    
-    return {"message": "Password reset successfully"}
+
+    return {"message": "Password reset successfully", "reset_time": datetime.utcnow().isoformat()}
 
 # Add a new endpoint to change password for authenticated users
 @router.post("/change-password")
@@ -1358,22 +1431,34 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
     - Mobile apps: Use deep links
     - Web browsers: Redirect to reset page
     """
-    # Verify token validity first (optional but provides better UX)
+    # Add detailed logging for debugging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Reset password redirect accessed with token: {token[:10]}...")
+    
+    # Verify token validity
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    valid_token = db.query(User).filter(
+    logger.info(f"Computed token hash: {token_hash[:15]}...")
+    
+    user = db.query(User).filter(
         User.reset_token == token_hash,
         User.reset_token_expires > datetime.utcnow()
-    ).first() is not None
+    ).first()
     
     # Get base URL from the current request
     base_url = f"{request.url.scheme}://{request.url.netloc}"
     
-    if not valid_token:
+    if not user:
+        # Log the failure for debugging
+        logger.warning(f"No user found with token hash: {token_hash[:15]}... - redirecting to error page")
         # For invalid tokens, redirect to error page
         error_page = f"{base_url}/auth/password-reset-error"
         return RedirectResponse(url=error_page)
     
+    # If we get here, token is valid
+    logger.info(f"Valid token found for user {user.id} ({user.email}) - proceeding with reset")
+    
     device_type = detect_device_type(request)
+    logger.info(f"Detected device type: {device_type}")
     
     # Create appropriate redirect based on device type
     if device_type == "ios":
@@ -1386,7 +1471,13 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
         # Web redirect to the reset password form endpoint
         redirect_url = f"{base_url}/auth/password-reset-form?token={token}"
     
-    # HTML with JavaScript that tries mobile app first, then falls back to web
+    logger.info(f"Redirecting to: {redirect_url}")
+    
+    # For web browsers, directly redirect to the password form
+    if device_type == "desktop" or device_type == "unknown":
+        return RedirectResponse(url=redirect_url)
+    
+    # For mobile, use HTML with JavaScript that tries deep links, then falls back to web
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -1431,118 +1522,58 @@ async def reset_password_redirect(token: str, request: Request, db: Session = De
 
 # Add a simple password reset form endpoint
 @router.get("/password-reset-form", response_class=HTMLResponse)
-async def password_reset_form(token: str, db: Session = Depends(get_db)):
-    """Provide a simple HTML form for password reset"""
+async def password_reset_form(token: Optional[str] = None, request: Request = None, db: Session = Depends(get_db)):
+    """Provide a password reset form using templates"""
+    
+    # Log for debugging
+    logger = logging.getLogger(__name__)
+    
+    # If token is missing, show missing token template
+    if not token:
+        logger.warning("Password reset form accessed without a token")
+        return templates.TemplateResponse("auth/missing_token.html", {"request": request})
+    
+    # Log the token received for debugging (only first few characters for security)
+    logger.info(f"Password reset form accessed with token: {token[:10]}...")
+    
     # Verify token validity
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    valid_token = db.query(User).filter(
+    logger.info(f"Checking token hash: {token_hash[:15]}...")
+    
+    user = db.query(User).filter(
         User.reset_token == token_hash,
         User.reset_token_expires > datetime.utcnow()
-    ).first() is not None
+    ).first()
     
-    if not valid_token:
-        return HTMLResponse(content="""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Invalid Token - TabibMeet</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h2>Invalid or Expired Token</h2>
-            <p class="error">The password reset link is invalid or has expired.</p>
-            <p>Please request a new password reset link.</p>
-        </body>
-        </html>
-        """)
+    # If token is invalid or expired, show invalid token template
+    if not user:
+        logger.warning(f"Invalid or expired reset token used: {token[:10]}...")
+        return templates.TemplateResponse("auth/invalid_token.html", {"request": request})
     
-    # Return a simple HTML form for resetting password
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Réinitialiser le Mot de Passe - TabibMeet</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{ font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }}
-            .form-group {{ margin-bottom: 15px; }}
-            label {{ display: block; margin-bottom: 5px; }}
-            input[type="password"] {{ width: 100%; padding: 8px; box-sizing: border-box; }}
-            button {{ background: #4CAF50; color: white; border: none; padding: 10px 15px; cursor: pointer; }}
-            .error {{ color: red; display: none; }}
-            .success {{ color: green; display: none; }}
-        </style>
-    </head>
-    <body>
-        <h2>Réinitialisez Votre Mot de Passe</h2>
-        <div id="error-message" class="error"></div>
-        <div id="success-message" class="success"></div>
-        <form id="reset-form">
-            <div class="form-group">
-                <label for="password">Nouveau Mot de Passe</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <div class="form-group">
-                <label for="confirm-password">Confirmer le Mot de Passe</label>
-                <input type="password" id="confirm-password" name="confirm_password" required>
-            </div>
-            <button type="submit">Réinitialiser le Mot de Passe</button>
-        </form>
-        
-        <script>
-            document.getElementById('reset-form').addEventListener('submit', async function(e) {{
-                e.preventDefault();
-                
-                const password = document.getElementById('password').value;
-                const confirmPassword = document.getElementById('confirm-password').value;
-                const errorElement = document.getElementById('error-message');
-                const successElement = document.getElementById('success-message');
-                
-                errorElement.style.display = 'none';
-                successElement.style.display = 'none';
-                
-                if (password !== confirmPassword) {{
-                    errorElement.textContent = 'Les mots de passe ne correspondent pas';
-                    errorElement.style.display = 'block';
-                    return;
-                }}
-                
-                try {{
-                    const response = await fetch('/auth/password-reset/confirm', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{
-                            token: '{token}',
-                            new_password: password,
-                            confirm_password: confirmPassword
-                        }})
-                    }});
-                    
-                    const result = await response.json();
-                    
-                    if (response.ok) {{
-                        successElement.textContent = result.message || 'Réinitialisation du mot de passe réussie !';
-                        successElement.style.display = 'block';
-                        document.getElementById('reset-form').style.display = 'none';
-                    }} else {{
-                        errorElement.textContent = result.detail || 'Échec de la réinitialisation du mot de passe';
-                        errorElement.style.display = 'block';
-                    }}
-                }} catch (error) {{
-                    errorElement.textContent = 'Une erreur s\'est produite. Veuillez réessayer.';
-                    errorElement.style.display = 'block';
-                    console.error(error);
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+    # Found valid user and token, log success
+    logger.info(f"Valid reset token found for user {user.id} ({user.email})")
+    
+    # Generate a CSRF token and store it in the session
+    csrf_token = secrets.token_hex(32)
+    if request.session.get("csrf_tokens") is None:
+        request.session["csrf_tokens"] = {}
+    
+    # Store CSRF token with expiration (10 minutes from now)
+    request.session["csrf_tokens"][csrf_token] = {
+        "expires": (datetime.utcnow() + timedelta(minutes=10)).timestamp(),
+        "user_id": user.id
+    }
+    
+    # Return password reset form template with context
+    return templates.TemplateResponse(
+        "auth/password_reset_form.html", 
+        {
+            "request": request,
+            "token": token,
+            "user": user,
+            "csrf_token": csrf_token
+        }
+    )
 
 # Add a password reset error page
 @router.get("/password-reset-error", response_class=HTMLResponse)
@@ -1602,7 +1633,6 @@ async def resend_otp_code(
             "email": user.email
         }
     except Exception as e:
-        print(f"Error sending 2FA code: {str(e)}")
         # Use a generic error message that doesn't confirm if email exists
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

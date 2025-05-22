@@ -113,11 +113,17 @@ async def update_appointment_status(
     appointment.notes = appointment.notes + "\n" + reason if appointment.notes else reason
     
     # Get doctor and patient details for the notification
+    # Add null checks for doctor and doctor.user
+    if not appointment.doctor or not appointment.doctor.user:
+        logger.warning(f"Skipping notification for appointment {appointment.id}: Missing doctor or user data.")
+        return
+        
     doctor_name = f"{appointment.doctor.user.first_name} {appointment.doctor.user.last_name}" 
     
     if not appointment.patient or not appointment.patient.user:
-        logger.warning("Skipping notification: Missing patient or user data.")
+        logger.warning(f"Skipping notification for appointment {appointment.id}: Missing patient or user data.")
         return
+        
     patient_name = f"{appointment.patient.user.first_name} {appointment.patient.user.last_name}"
     
     # Create appointment data for notification

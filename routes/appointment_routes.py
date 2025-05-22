@@ -244,6 +244,7 @@ def add_appointment(
     appointment: AppointmentCreate,
     current_user: User = Depends(get_current_active_user)
 ):
+    
     # Remove seconds/microseconds from times
     st = appointment.start_time.replace(second=0, microsecond=0)
     if appointment.end_time:
@@ -342,20 +343,48 @@ def add_appointment_by_fullname(   # changed to synchronous function
 @router.patch("/appointments/{appointment_id}/status", response_model=AppointmentStatusOut)
 def update_appointment_status_endpoint(
     appointment_id: int,
-    new_status: str ,
+    new_status: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    # Ensure only doctors can update appointment status
-    if current_user.role != UserRole.DOCTOR:
-        raise HTTPException(status_code=403, detail="Only doctors can update appointment status")
+    # Get the appointment first to check ownership
+    appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     
-    try:
-        # Call the synchronous function directly without await
-        updated_appt = update_appointment_status(db, appointment_id, new_status, current_user.doctor_profile.id)
-        return {"status": updated_appt.status}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Allow patients to cancel their own appointments
+    if current_user.role == UserRole.PATIENT:
+        # Check if this appointment belongs to the current patient
+        if appointment.patient_id != current_user.patient_profile.id:
+            raise HTTPException(status_code=403, detail="You can only update your own appointments")
+        
+        # Patients can only set status to "cancelled"
+        if new_status != "cancelled":
+            raise HTTPException(status_code=403, detail="Patients can only cancel appointments")
+        
+        # Update the appointment status to cancelled
+        appointment.status = "cancelled"
+        appointment.is_updated = True
+        appointment.update_date = datetime.now()
+        
+        try:
+            db.commit()
+            db.refresh(appointment)
+            return {"status": appointment.status}
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Failed to update appointment status: {str(e)}")
+            
+    # For doctors, use the existing service function
+    elif current_user.role == UserRole.DOCTOR:
+        try:
+            updated_appt = update_appointment_status(db, appointment_id, new_status, current_user.doctor_profile.id)
+            return {"status": updated_appt.status}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+            
+    else:
+        raise HTTPException(status_code=403, detail="Only doctors and patients can update appointment status")
 
 @router.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_appointment_endpoint(

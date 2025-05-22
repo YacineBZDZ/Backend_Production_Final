@@ -70,7 +70,7 @@ async def send_email(
     use_ssl = settings.EMAIL_USE_SSL
     
     # Log basic info without credentials
-    logger.info(f"Sending email to: {to_email}, subject: {subject}")
+   # logger.info(f"Sending email to: {to_email}, subject: {subject}")
     
     # Build the message
     message = MIMEMultipart("alternative")
@@ -99,7 +99,7 @@ async def send_email(
         server.send_message(message)
         server.quit()
         
-        logger.info(f"Email sent successfully to {to_email}")
+        #logger.info(f"Email sent successfully to {to_email}")
         return True
         
     except Exception as e:

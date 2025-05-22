@@ -215,6 +215,7 @@ if __name__ == "__main__":
     create_verified_test_admin()
     create_test_patient()
 
-
 #testadmin@tabibmeet.com laurineclair@gmail.com   loradenzel@gmail.com  lombiemoge@gmail.com
-#AdminTest@1!
+#AdminTest@1! jakmca18@gmail.com  Yacineyacine@1  221 la tolosane toulouse  occitanie 31400 france  0445484963
+#lindamakanzi@gmail.com   Testtest@1   linda makanzi  0648747875  test7 patient7  0647455341  testpatient7@gmail.com  general   0774787576
+# makawimalikatabibmeet@gmail.com / Testtest@1

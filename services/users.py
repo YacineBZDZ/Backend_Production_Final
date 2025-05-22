@@ -78,6 +78,11 @@ class UserProfile(BaseModel):
     is_active: bool
     two_factor_enabled: bool
     profile_data: Optional[dict] = None
+    
+    # Privacy policy information
+    privacy_policy_accepted: Optional[bool] = None
+    privacy_policy_version: Optional[str] = None
+    privacy_policy_accepted_date: Optional[datetime] = None
 
 class DoctorProfileUpdate(BaseModel):
     specialty: Optional[str] = None
@@ -262,13 +267,13 @@ async def get_current_user_profile(current_user: User = Depends(get_current_acti
             "bio": current_user.doctor_profile.bio,
             "education": current_user.doctor_profile.education,
             "years_experience": current_user.doctor_profile.years_experience,
-            #"address": current_user.doctor_profile.address
+            "address": current_user.doctor_profile.address
         }
     elif current_user.role == UserRole.PATIENT and current_user.patient_profile:
         profile_data = {
             "date_of_birth": current_user.patient_profile.date_of_birth.isoformat() if current_user.patient_profile.date_of_birth else None,
             "gender": current_user.patient_profile.gender,
-            #"address": current_user.patient_profile.address,
+            "address": current_user.patient_profile.address,
             "medical_history": current_user.patient_profile.medical_history,
             "insurance_info": current_user.patient_profile.insurance_info,
             "emergency_contact_name": current_user.patient_profile.emergency_contact_name,
@@ -284,7 +289,10 @@ async def get_current_user_profile(current_user: User = Depends(get_current_acti
         "role": current_user.role.value,
         "is_active": current_user.is_active,
         "two_factor_enabled": current_user.two_factor_enabled,
-        "profile_data": profile_data
+        "profile_data": profile_data,
+        "privacy_policy_accepted": current_user.privacy_policy_accepted,
+        "privacy_policy_version": current_user.privacy_policy_version,
+        "privacy_policy_accepted_date": current_user.privacy_policy_accepted_date
     }
 
 @router.get("/doctors", response_model=List[DoctorProfileResponse])
@@ -453,7 +461,10 @@ async def update_user_profile(
         "role": current_user.role.value,
         "is_active": current_user.is_active,
         "two_factor_enabled": current_user.two_factor_enabled,
-        "profile_data": profile_data
+        "profile_data": profile_data,
+        "privacy_policy_accepted": current_user.privacy_policy_accepted,
+        "privacy_policy_version": current_user.privacy_policy_version,
+        "privacy_policy_accepted_date": current_user.privacy_policy_accepted_date
     }
 
 # Update doctor profile
@@ -731,7 +742,10 @@ async def get_all_users(
             "role": user.role.value,
             "is_active": user.is_active,
             "two_factor_enabled": user.two_factor_enabled,
-            "profile_data": profile_data
+            "profile_data": profile_data,
+            "privacy_policy_accepted": user.privacy_policy_accepted,
+            "privacy_policy_version": user.privacy_policy_version,
+            "privacy_policy_accepted_date": user.privacy_policy_accepted_date
         })
     
     return result

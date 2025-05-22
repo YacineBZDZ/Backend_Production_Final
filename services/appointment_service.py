@@ -22,14 +22,16 @@ def create_appointment(
     end_time = end_time.replace(second=0, microsecond=0)
     
     # Check for existing appointment on the same date with overlapping time
+    # Only consider appointments with status "confirmed" or "pending"
     conflict = session.query(Appointment).filter(
         Appointment.doctor_id == doctor_id,
         Appointment.appointment_date == appointment_date,
         Appointment.start_time < end_time,
         Appointment.end_time > start_time,
+        Appointment.status.in_(["confirmed", "pending"])  # Only check active appointments
     ).first()
     if conflict:
-        raise Exception("Appointment time overlaps with an existing appointment on the same date.")
+        raise Exception("Appointment time overlaps with an existing active appointment on the same date.")
     
     def overlaps(s1: time, e1: time, s2: time, e2: time) -> bool:
         return s1 < e2 and s2 < e1
@@ -174,14 +176,16 @@ def create_appointment_by_patient_fullname(
     patient_profile_id = patient.id
 
     # Filtering logic: check for existing appointment conflicts
+    # Only consider appointments with status "confirmed" or "pending"
     conflict = session.query(Appointment).filter(
         Appointment.doctor_id == doctor_id,
         Appointment.appointment_date == appointment_date,
         Appointment.start_time < end_time,
         Appointment.end_time > start_time,
+        Appointment.status.in_(["confirmed", "pending"])  # Only check active appointments
     ).first()
     if conflict:
-        raise Exception("Appointment time overlaps with an existing appointment on the same date.")
+        raise Exception("Appointment time overlaps with an existing active appointment on the same date.")
     
     # Filtering logic: check doctor's availability
     def overlaps(s1: time, e1: time, s2: time, e2: time) -> bool:
@@ -359,15 +363,17 @@ def update_appointment_details(session: Session, appointment: Appointment, updat
         new_end_time = datetime.strptime(update_data["end_time"], "%H:%M:%S").time()
 
     # Conflict check (excluding current appointment)
+    # Only consider appointments with status "confirmed" or "pending"
     conflict = session.query(Appointment).filter(
         Appointment.id != appointment.id,
         Appointment.doctor_id == new_doctor_id,
         Appointment.appointment_date == new_appointment_date,
         Appointment.start_time < new_end_time,
         Appointment.end_time > new_start_time,
+        Appointment.status.in_(["confirmed", "pending"])  # Only check active appointments
     ).first()
     if conflict:
-        raise Exception("Updated appointment conflicts with an existing appointment.")
+        raise Exception("Updated appointment conflicts with an existing active appointment.")
 
     # Only check doctor's availability if any date/time fields are updated
     if any(key in update_data for key in ["appointment_date", "start_time", "end_time"]):
@@ -499,4 +505,77 @@ def get_past_appointments(session: Session, user: User):
 
     # For any other roles (should not happen with the endpoint check)
     return []
-# somme modifications
+
+async def notify_appointment_update(appointment_id, update_type, db):
+    """Send WebSocket notification when an appointment is updated"""
+    try:
+        # Get appointment details with patient and doctor info
+        appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+        if not appointment:
+            # If appointment not found, skip notification
+            return
+            
+        # Get patient and doctor users
+        patient = db.query(User).filter(User.id == appointment.patient_id).first()
+        doctor_profile = db.query(DoctorProfile).filter(DoctorProfile.id == appointment.doctor_id).first()
+        doctor = db.query(User).filter(User.id == doctor_profile.user_id).first() if doctor_profile else None
+        
+        if not patient or not doctor:
+            # Skip notification if we can't find users
+            return
+        
+        # Create message content based on update type
+        if update_type == "created":
+            message = f"New appointment scheduled with Dr. {doctor.last_name} on {appointment.appointment_date}"
+        elif update_type == "updated":
+            message = f"Appointment with Dr. {doctor.last_name} on {appointment.appointment_date} was updated"
+        elif update_type == "cancelled":
+            message = f"Appointment with Dr. {doctor.last_name} on {appointment.appointment_date} was cancelled"
+        else:
+            message = f"Appointment status changed to: {appointment.status}"
+            
+        # Prepare notification for patient
+        patient_notification = {
+            "type": "appointment_update",
+            "update_type": update_type,
+            "appointment_id": appointment.id,
+            "message": message,
+            "appointment_date": str(appointment.appointment_date),
+            "start_time": str(appointment.start_time),
+            "doctor_name": f"Dr. {doctor.first_name} {doctor.last_name}",
+            "status": appointment.status
+        }
+        
+        # Prepare notification for doctor (slightly different content)
+        doctor_notification = {
+            "type": "appointment_update",
+            "update_type": update_type,
+            "appointment_id": appointment.id,
+            "message": f"Appointment with {patient.first_name} {patient.last_name} on {appointment.appointment_date} was {update_type}",
+            "appointment_date": str(appointment.appointment_date),
+            "start_time": str(appointment.start_time),
+            "patient_name": f"{patient.first_name} {patient.last_name}",
+            "status": appointment.status
+        }
+        
+        # Send notifications via WebSockets (if imported and available)
+        try:
+            from ws.notifications import send_user_notification
+            
+            # Send to patient
+            await send_user_notification(patient.id, patient_notification)
+            
+            # Send to doctor
+            await send_user_notification(doctor.id, doctor_notification)
+        except ImportError:
+            # WebSocket module not available
+            pass
+        except RuntimeError:
+            # No running event loop
+            pass
+        except Exception as ws_error:
+            # Other WebSocket errors
+            pass
+    except Exception as e:
+        # Log error but don't raise, as this is a non-essential feature
+        pass

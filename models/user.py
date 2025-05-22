@@ -30,6 +30,11 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
+    # Privacy policy tracking fields
+    privacy_policy_accepted = Column(Boolean, default=False)
+    privacy_policy_version = Column(String, nullable=True)
+    privacy_policy_accepted_date = Column(DateTime(timezone=True), nullable=True)
+    
     # Relationship with other tables based on role
     admin_profile = relationship("AdminProfile", back_populates="user", uselist=False)
     doctor_profile = relationship("DoctorProfile", back_populates="user", uselist=False)
@@ -174,6 +179,36 @@ class FeaturedDoctor(Base):
         elif self.doctor and self.doctor.user:
             return self.doctor.user
         return None
+
+class PrivacyPolicy(Base):
+    """Model to track different versions of privacy policies"""
+    __tablename__ = "privacy_policies"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String, nullable=False, unique=True)
+    content = Column(String, nullable=False)  # The full policy text
+    summary = Column(String, nullable=True)   # Optional summary of changes
+    effective_date = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True)
+    
+    # Relationship with accepted records
+    acceptance_records = relationship("UserPrivacyAcceptance", back_populates="policy")
+
+class UserPrivacyAcceptance(Base):
+    """Model to track each time a user accepts a privacy policy"""
+    __tablename__ = "user_privacy_acceptances"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    policy_id = Column(Integer, ForeignKey("privacy_policies.id"), nullable=False)
+    accepted_at = Column(DateTime(timezone=True), server_default=func.now())
+    ip_address = Column(String, nullable=True)  # Store IP for audit purposes
+    user_agent = Column(String, nullable=True)  # Store browser/device info
+    
+    # Define relationships
+    user = relationship("User")
+    policy = relationship("PrivacyPolicy", back_populates="acceptance_records")
 
 class HomeDisplaySettings(Base):
     """Settings for the home page display"""
