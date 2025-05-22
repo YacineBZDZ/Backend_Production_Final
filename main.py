@@ -1,3 +1,14 @@
+import os
+import sys
+import subprocess
+
+# Ensure all requirements are installed before running the app
+try:
+    import itsdangerous  # Example: check for a required dependency
+except ImportError:
+    print("[INFO] Installing requirements...")
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
+
 import sys
 import os
 from fastapi import FastAPI, Request, Depends
@@ -36,7 +47,7 @@ from database.create_test_doctor import create_verified_test_doctor, create_veri
   TODO4: Check all the security integration (JWT, CSRF, CORS, etc.)
   TODO5: Check the image cache and the memory usage
   TODO6: PUSH THE APP TO THE PLAY STORE
-  
+  TODO7: Add the privacy policy to the app
      """
 
 # Configure logging

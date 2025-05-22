@@ -30,3 +30,6 @@ websockets>=11.0.2
 python-dotenv>=1.0.0
 user-agents>=2.2.0
 aiocache>=0.12.1
+
+# For session middleware and security
+itsdangerous>=2.1.2
